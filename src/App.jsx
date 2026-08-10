@@ -1,260 +1,438 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { apiFetch, SesionExpiradaError } from './lib/api';
+import Login from './components/Login';
+import ConfirmModal from './components/ConfirmModal';
+import ClientTicket from './components/ClientTicket';
+import ToastStack from './components/Toast';
+import { formatMoney } from './lib/format';
 
-const MATERIALES_CONFIG = {
-  'Arena': { bg: 'bg-amber-100', text: 'text-amber-800', border: 'border-amber-200' },
-  'Grava': { bg: 'bg-slate-200', text: 'text-slate-800', border: 'border-slate-300' },
-  'Rajuela': { bg: 'bg-stone-300', text: 'text-stone-900', border: 'border-stone-400' },
-  'Ladrillo': { bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-200' },
-  'Escombro': { bg: 'bg-zinc-100', text: 'text-zinc-700', border: 'border-zinc-300' },
-};
-
+const MATERIALES_DISPONIBLES = ['Arena', 'Grava', 'Rajuela', 'Ladrillo', 'Escombro'];
 const UNIDADES_DISPONIBLES = ['Unidades', 'm³', 'm²', 'Viajes'];
-const COLOR_DEFECTO = { bg: 'bg-indigo-100', text: 'text-indigo-800', border: 'border-indigo-200' };
+
+const TOKEN_KEY = 'freightbd_token';
+const TOKEN_EXP_KEY = 'freightbd_token_exp';
+
+function leerSesionGuardada() {
+  const token = localStorage.getItem(TOKEN_KEY);
+  const exp = Number(localStorage.getItem(TOKEN_EXP_KEY));
+  if (!token || !exp || Date.now() >= exp) return null;
+  return token;
+}
 
 export default function App() {
+  const [token, setToken] = useState(() => leerSesionGuardada());
   const [clientes, setClientes] = useState([]);
+  const [cargandoClientes, setCargandoClientes] = useState(true);
+
+  const [toasts, setToasts] = useState([]);
+  const notificar = useCallback((mensaje, tipo = 'exito') => {
+    const id = crypto.randomUUID();
+    setToasts((prev) => [...prev, { id, mensaje, tipo }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 5000);
+  }, []);
+  const descartarToast = (id) => setToasts((prev) => prev.filter((t) => t.id !== id));
+
+  const cerrarSesion = useCallback((mensaje) => {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXP_KEY);
+    setToken(null);
+    setClientes([]);
+    if (mensaje) notificar(mensaje, 'error');
+  }, [notificar]);
+
+  const manejarError = useCallback((err) => {
+    if (err instanceof SesionExpiradaError) {
+      cerrarSesion(err.message);
+    } else {
+      notificar(err.message || 'Ocurrió un error inesperado.', 'error');
+    }
+  }, [cerrarSesion, notificar]);
+
+  const iniciarSesion = (nuevoToken, expiresInSeg) => {
+    const expira = Date.now() + expiresInSeg * 1000;
+    localStorage.setItem(TOKEN_KEY, nuevoToken);
+    localStorage.setItem(TOKEN_EXP_KEY, String(expira));
+    setToken(nuevoToken);
+  };
+
+  // ---- Carga de clientes ----
+  const cargarClientes = useCallback(async () => {
+    if (!token) return;
+    setCargandoClientes(true);
+    try {
+      const data = await apiFetch('/clientes', { token });
+      if (Array.isArray(data)) setClientes(data);
+    } catch (err) {
+      manejarError(err);
+    } finally {
+      setCargandoClientes(false);
+    }
+  }, [token, manejarError]);
+
+  useEffect(() => {
+    if (token) cargarClientes();
+  }, [token, cargarClientes]);
+
+  // ---- Formulario: nuevo cliente ----
   const [nombre, setNombre] = useState('');
   const [empresa, setEmpresa] = useState('');
-  
+  const [erroresCliente, setErroresCliente] = useState({});
+  const [creandoCliente, setCreandoCliente] = useState(false);
+
+  const validarCliente = () => {
+    const errores = {};
+    const nombreLimpio = nombre.trim();
+    if (!nombreLimpio) errores.nombre = 'El nombre es obligatorio.';
+    else if (nombreLimpio.length < 2) errores.nombre = 'Escribe al menos 2 caracteres.';
+    else if (nombreLimpio.length > 100) errores.nombre = 'Máximo 100 caracteres.';
+    if (empresa.trim().length > 150) errores.empresa = 'Máximo 150 caracteres.';
+    setErroresCliente(errores);
+    return Object.keys(errores).length === 0;
+  };
+
+  const manejarCrearCliente = async (e) => {
+    e.preventDefault();
+    if (!validarCliente()) return;
+
+    setCreandoCliente(true);
+    try {
+      await apiFetch('/clientes', {
+        method: 'POST',
+        token,
+        body: JSON.stringify({ nombre: nombre.trim(), empresa: empresa.trim() })
+      });
+      setNombre('');
+      setEmpresa('');
+      setErroresCliente({});
+      notificar('Cliente agregado.');
+      await cargarClientes();
+    } catch (err) {
+      manejarError(err);
+    } finally {
+      setCreandoCliente(false);
+    }
+  };
+
+  // ---- Formulario: nuevo flete ----
   const [clienteSeleccionado, setClienteSeleccionado] = useState('');
   const [tipoMaterial, setTipoMaterial] = useState('');
   const [unidadMedida, setUnidadMedida] = useState('');
   const [cantidad, setCantidad] = useState('');
   const [precio, setPrecio] = useState('');
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
+  const [erroresFlete, setErroresFlete] = useState({});
+  const [creandoFlete, setCreandoFlete] = useState(false);
 
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalConfig, setModalConfig] = useState({ titulo: '', mensaje: '', accion: null });
-
-  const API_URL = 'http://localhost:4000/api';
-
-  const cargarClientes = async () => {
-    try {
-      const res = await fetch(`${API_URL}/clientes`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) setClientes(data);
-      }
-    } catch (err) {
-      console.error("Error cargando clientes:", err);
-    }
-  };
-
-  useEffect(() => {
-    cargarClientes();
-  }, []);
-
-  const manejarCrearCliente = async (e) => {
-    e.preventDefault();
-    if (!nombre.trim()) return;
-
-    try {
-      const res = await fetch(`${API_URL}/clientes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nombre, empresa })
-      });
-      if (res.ok) {
-        setNombre('');
-        setEmpresa('');
-        await cargarClientes();
-      }
-    } catch (err) {
-      console.error(err);
-    }
+  const validarFlete = () => {
+    const errores = {};
+    if (!clienteSeleccionado) errores.clienteSeleccionado = 'Elige un cliente.';
+    if (!MATERIALES_DISPONIBLES.includes(tipoMaterial)) errores.tipoMaterial = 'Elige un material.';
+    if (!UNIDADES_DISPONIBLES.includes(unidadMedida)) errores.unidadMedida = 'Elige una unidad.';
+    const cantidadNum = Number(cantidad);
+    if (!cantidad || Number.isNaN(cantidadNum) || cantidadNum <= 0) errores.cantidad = 'Cantidad inválida.';
+    else if (cantidadNum >= 1000000) errores.cantidad = 'Cantidad demasiado grande.';
+    const precioNum = Number(precio);
+    if (!precio || Number.isNaN(precioNum) || precioNum <= 0) errores.precio = 'Precio inválido.';
+    else if (precioNum >= 10000000) errores.precio = 'Precio demasiado grande.';
+    if (!fecha) errores.fecha = 'Elige una fecha.';
+    setErroresFlete(errores);
+    return Object.keys(errores).length === 0;
   };
 
   const manejarAgregarFlete = async (e) => {
     e.preventDefault();
-    if (!clienteSeleccionado || !tipoMaterial || !unidadMedida || !cantidad || !precio) return;
+    if (!validarFlete()) return;
 
+    setCreandoFlete(true);
     try {
-      const materialConUnidad = `${tipoMaterial} (${unidadMedida})`;
-      const res = await fetch(`${API_URL}/clientes/${clienteSeleccionado}/fletes`, {
+      await apiFetch(`/clientes/${clienteSeleccionado}/fletes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tipoMaterial: materialConUnidad, cantidad, precio, fecha })
+        token,
+        body: JSON.stringify({ tipoMaterial, unidadMedida, cantidad, precio, fecha })
       });
-      if (res.ok) {
-        setTipoMaterial('');
-        setUnidadMedida('');
-        setCantidad('');
-        setPrecio('');
-        setFecha(new Date().toISOString().split('T')[0]);
-        await cargarClientes();
-      }
+      setTipoMaterial('');
+      setUnidadMedida('');
+      setCantidad('');
+      setPrecio('');
+      setFecha(new Date().toISOString().split('T')[0]);
+      setErroresFlete({});
+      notificar('Flete agregado.');
+      await cargarClientes();
     } catch (err) {
-      console.error(err);
+      manejarError(err);
+    } finally {
+      setCreandoFlete(false);
     }
   };
 
+  // ---- Eliminaciones ----
+  const [modal, setModal] = useState({ open: false, titulo: '', mensaje: '', accion: null });
+  const [eliminandoModal, setEliminandoModal] = useState(false);
+  const [eliminandoFleteId, setEliminandoFleteId] = useState(null);
+
   const confirmarEliminarCliente = (id, nombreCliente) => {
-    setModalConfig({
-      titulo: '¿Eliminar Cliente?',
-      mensaje: `¿Estás completamente seguro de eliminar a "${nombreCliente}"? Esta acción borrará también todo su historial de fletes de forma permanente.`,
+    setModal({
+      open: true,
+      titulo: '¿Eliminar cliente?',
+      mensaje: `¿Estás seguro de eliminar a "${nombreCliente}"? Esta acción borrará también todo su historial de fletes de forma permanente.`,
       accion: async () => {
+        setEliminandoModal(true);
         try {
-          const res = await fetch(`${API_URL}/clientes/${id}`, { method: 'DELETE' });
-          if (res.ok) {
-            await cargarClientes();
-          }
+          await apiFetch(`/clientes/${id}`, { method: 'DELETE', token });
+          notificar('Cliente eliminado.');
+          await cargarClientes();
+          setModal((m) => ({ ...m, open: false }));
         } catch (err) {
-          console.error(err);
+          manejarError(err);
+        } finally {
+          setEliminandoModal(false);
         }
-        setModalOpen(false);
       }
     });
-    setModalOpen(true);
   };
 
   const confirmarEliminarFlete = (clienteId, fleteId) => {
-    setModalConfig({
-      titulo: '¿Eliminar Flete?',
-      mensaje: '¿Estás seguro de que deseas remover este registro de carga del cliente? El precio total se recalculará automáticamente.',
+    setModal({
+      open: true,
+      titulo: '¿Eliminar flete?',
+      mensaje: 'Este registro de carga se eliminará y el total del cliente se recalculará automáticamente.',
       accion: async () => {
+        setEliminandoModal(true);
+        setEliminandoFleteId(fleteId);
         try {
-          const res = await fetch(`${API_URL}/clientes/${clienteId}/fletes/${fleteId}`, { method: 'DELETE' });
-          if (res.ok) {
-            await cargarClientes();
-          }
+          await apiFetch(`/clientes/${clienteId}/fletes/${fleteId}`, { method: 'DELETE', token });
+          notificar('Flete eliminado.');
+          await cargarClientes();
+          setModal((m) => ({ ...m, open: false }));
         } catch (err) {
-          console.error(err);
+          manejarError(err);
+        } finally {
+          setEliminandoModal(false);
+          setEliminandoFleteId(null);
         }
-        setModalOpen(false);
       }
     });
-    setModalOpen(true);
   };
 
-  const exportarAPDF = () => {
-    window.print();
-  };
+  const exportarAPDF = () => window.print();
+
+  // ---- Búsqueda y orden ----
+  const [busqueda, setBusqueda] = useState('');
+  const [orden, setOrden] = useState('recientes');
+
+  const clientesVisibles = useMemo(() => {
+    const filtro = busqueda.trim().toLowerCase();
+    let lista = clientes.filter((c) =>
+      !filtro ||
+      c.nombre?.toLowerCase().includes(filtro) ||
+      c.empresa?.toLowerCase().includes(filtro)
+    );
+
+    if (orden === 'total-desc') {
+      lista = [...lista].sort((a, b) => (b.totalFinal || 0) - (a.totalFinal || 0));
+    } else if (orden === 'nombre-asc') {
+      lista = [...lista].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+    } else {
+      lista = [...lista].sort((a, b) => (b.creadoEn || '').localeCompare(a.creadoEn || ''));
+    }
+    return lista;
+  }, [clientes, busqueda, orden]);
+
+  const resumen = useMemo(() => {
+    const totalFacturado = clientes.reduce((sum, c) => sum + (c.totalFinal || 0), 0);
+    const totalFletes = clientes.reduce((sum, c) => sum + (c.fletes?.length || 0), 0);
+    return { totalClientes: clientes.length, totalFletes, totalFacturado };
+  }, [clientes]);
+
+  if (!token) {
+    return <Login onLogin={iniciarSesion} />;
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans relative">
-      
-      <style>{`
-        @media print {
-          header, .no-print, button, form { display: none !important; }
-          main { grid-template-cols: 1fr !important; max-w: 100% !important; padding: 0 !important; }
-          .lg\\:col-span-2 { grid-column: span 3 / span 3 !important; }
-          .shadow-sm, .rounded-2xl { border: none !important; shadow: none !important; }
-        }
-      `}</style>
-
+    <div className="min-h-screen text-ink font-body relative pb-10">
       {/* Navbar */}
-      <header className="bg-slate-900 text-white shadow-md px-8 py-4 flex justify-between items-center">
-        <h1 className="text-xl font-bold tracking-wide">FreightBD Dashboard</h1>
-        <div className="flex items-center gap-4">
-          <button 
+      <header className="bg-ink text-paper px-6 md:px-8 py-4 flex flex-wrap justify-between items-center gap-3">
+        <div className="flex items-center gap-3">
+          <span className="w-2.5 h-2.5 rounded-full bg-amber" aria-hidden="true" />
+          <h1 className="font-display font-semibold text-lg md:text-xl uppercase tracking-wide">
+            FreightBD · Panel de Fletes
+          </h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
             onClick={exportarAPDF}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-xl transition shadow-sm flex items-center gap-2"
+            className="bg-amber hover:bg-amber-dark text-ink text-xs md:text-sm font-display font-semibold uppercase px-3 md:px-4 py-2 rounded-lg transition"
           >
-            🖨️ Exportar Reporte (PDF)
+            Exportar reporte
           </button>
-          <span className="bg-emerald-500 text-xs px-2 py-1 rounded-full font-medium">Server Online</span>
+          <button
+            onClick={() => cerrarSesion()}
+            className="text-paper/70 hover:text-paper text-xs md:text-sm font-medium px-3 py-2 rounded-lg hover:bg-white/10 transition no-print"
+          >
+            Cerrar sesión
+          </button>
         </div>
       </header>
 
+      {/* Resumen */}
+      <div className="max-w-7xl mx-auto px-6 md:px-8 pt-6 no-print">
+        <div className="grid grid-cols-3 gap-3 md:gap-4">
+          <div className="bg-paper-card border border-line rounded-xl px-4 py-3">
+            <span className="text-[10px] md:text-xs font-semibold text-ink-muted uppercase tracking-wide block">Clientes</span>
+            <span className="font-display font-bold text-xl md:text-2xl text-ink">{resumen.totalClientes}</span>
+          </div>
+          <div className="bg-paper-card border border-line rounded-xl px-4 py-3">
+            <span className="text-[10px] md:text-xs font-semibold text-ink-muted uppercase tracking-wide block">Fletes</span>
+            <span className="font-display font-bold text-xl md:text-2xl text-ink">{resumen.totalFletes}</span>
+          </div>
+          <div className="bg-paper-card border border-line rounded-xl px-4 py-3">
+            <span className="text-[10px] md:text-xs font-semibold text-ink-muted uppercase tracking-wide block">Facturado</span>
+            <span className="font-display font-bold text-xl md:text-2xl text-pine">${formatMoney(resumen.totalFacturado)}</span>
+          </div>
+        </div>
+      </div>
+
       {/* Main Container */}
-      <main className="max-w-7xl mx-auto p-6 grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
+      <main className="max-w-7xl mx-auto p-6 md:p-8 grid grid-cols-1 lg:grid-cols-3 gap-8">
+
         {/* COLUMNA IZQUIERDA: FORMULARIOS */}
         <div className="space-y-6 lg:col-span-1 no-print">
-          
+
           {/* Formulario Clientes */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h2 className="text-lg font-bold mb-4 text-slate-700">Agregar Nuevo Cliente</h2>
-            <form onSubmit={manejarCrearCliente} className="space-y-3">
+          <div className="bg-paper-card p-6 rounded-2xl shadow-ticket border border-line">
+            <h2 className="font-display font-semibold uppercase tracking-wide text-sm mb-4 text-ink">
+              Agregar nuevo cliente
+            </h2>
+            <form onSubmit={manejarCrearCliente} className="space-y-3" noValidate>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Nombre Completo</label>
-                <input 
-                  type="text" placeholder="Ej. Juan Pérez" value={nombre} onChange={e => setNombre(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                <label htmlFor="nombre" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                  Nombre completo
+                </label>
+                <input
+                  id="nombre" type="text" placeholder="Ej. Juan Pérez" value={nombre}
+                  onChange={(e) => setNombre(e.target.value)}
+                  aria-invalid={!!erroresCliente.nombre}
+                  className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 />
+                {erroresCliente.nombre && <p role="alert" className="text-rust text-xs mt-1">{erroresCliente.nombre}</p>}
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Empresa / Razón Social</label>
-                <input 
-                  type="text" placeholder="Ej. Logística Norte S.A." value={empresa} onChange={e => setEmpresa(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                <label htmlFor="empresa" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                  Empresa / Razón social
+                </label>
+                <input
+                  id="empresa" type="text" placeholder="Ej. Logística Norte S.A." value={empresa}
+                  onChange={(e) => setEmpresa(e.target.value)}
+                  aria-invalid={!!erroresCliente.empresa}
+                  className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 />
+                {erroresCliente.empresa && <p role="alert" className="text-rust text-xs mt-1">{erroresCliente.empresa}</p>}
               </div>
-              <button className="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg text-sm transition">
-                Guardar Cliente
+              <button
+                disabled={creandoCliente}
+                className="w-full py-2.5 bg-ink hover:bg-ink-soft disabled:opacity-60 text-paper font-display font-semibold uppercase tracking-wide rounded-lg text-sm transition"
+              >
+                {creandoCliente ? 'Guardando…' : 'Guardar cliente'}
               </button>
             </form>
           </div>
 
           {/* Formulario Fletes */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-            <h2 className="text-lg font-bold mb-4 text-slate-700">Asignar Flete de Carga</h2>
-            <form onSubmit={manejarAgregarFlete} className="space-y-3">
+          <div className="bg-paper-card p-6 rounded-2xl shadow-ticket border border-line">
+            <h2 className="font-display font-semibold uppercase tracking-wide text-sm mb-4 text-ink">
+              Asignar flete de carga
+            </h2>
+            <form onSubmit={manejarAgregarFlete} className="space-y-3" noValidate>
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Seleccionar Cliente</label>
-                <select 
-                  value={clienteSeleccionado} onChange={e => setClienteSeleccionado(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                <label htmlFor="clienteSel" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                  Cliente
+                </label>
+                <select
+                  id="clienteSel" value={clienteSeleccionado} onChange={(e) => setClienteSeleccionado(e.target.value)}
+                  aria-invalid={!!erroresFlete.clienteSeleccionado}
+                  className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 >
                   <option value="">-- Elige un cliente --</option>
-                  {clientes.map(c => (
+                  {clientes.map((c) => (
                     <option key={c.id} value={c.id}>{c.nombre} ({c.empresa})</option>
                   ))}
                 </select>
+                {erroresFlete.clienteSeleccionado && <p role="alert" className="text-rust text-xs mt-1">{erroresFlete.clienteSeleccionado}</p>}
               </div>
-              
+
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Tipo de Material</label>
-                <select 
-                  value={tipoMaterial} onChange={e => setTipoMaterial(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                <label htmlFor="material" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                  Tipo de material
+                </label>
+                <select
+                  id="material" value={tipoMaterial} onChange={(e) => setTipoMaterial(e.target.value)}
+                  aria-invalid={!!erroresFlete.tipoMaterial}
+                  className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 >
                   <option value="">-- Selecciona un material --</option>
-                  {Object.keys(MATERIALES_CONFIG).map(mat => (
-                    <option key={mat} value={mat}>{mat}</option>
-                  ))}
+                  {MATERIALES_DISPONIBLES.map((mat) => <option key={mat} value={mat}>{mat}</option>)}
                 </select>
+                {erroresFlete.tipoMaterial && <p role="alert" className="text-rust text-xs mt-1">{erroresFlete.tipoMaterial}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Unidad de Medida</label>
-                <select 
-                  value={unidadMedida} onChange={e => setUnidadMedida(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                <label htmlFor="unidad" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                  Unidad de medida
+                </label>
+                <select
+                  id="unidad" value={unidadMedida} onChange={(e) => setUnidadMedida(e.target.value)}
+                  aria-invalid={!!erroresFlete.unidadMedida}
+                  className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 >
                   <option value="">-- Selecciona la unidad --</option>
-                  {UNIDADES_DISPONIBLES.map(uni => (
-                    <option key={uni} value={uni}>{uni}</option>
-                  ))}
+                  {UNIDADES_DISPONIBLES.map((uni) => <option key={uni} value={uni}>{uni}</option>)}
                 </select>
+                {erroresFlete.unidadMedida && <p role="alert" className="text-rust text-xs mt-1">{erroresFlete.unidadMedida}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Fecha del Trabajo</label>
-                <input 
-                  type="date" value={fecha} onChange={e => setFecha(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                <label htmlFor="fecha" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                  Fecha del trabajo
+                </label>
+                <input
+                  id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
+                  aria-invalid={!!erroresFlete.fecha}
+                  className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 />
+                {erroresFlete.fecha && <p role="alert" className="text-rust text-xs mt-1">{erroresFlete.fecha}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Cantidad</label>
-                  <input 
-                    type="number" placeholder="Ej. 10" value={cantidad} onChange={e => setCantidad(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  <label htmlFor="cantidad" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                    Cantidad
+                  </label>
+                  <input
+                    id="cantidad" type="number" min="0" step="any" placeholder="Ej. 10" value={cantidad}
+                    onChange={(e) => setCantidad(e.target.value)}
+                    aria-invalid={!!erroresFlete.cantidad}
+                    className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                   />
+                  {erroresFlete.cantidad && <p role="alert" className="text-rust text-xs mt-1">{erroresFlete.cantidad}</p>}
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Precio ($)</label>
-                  <input 
-                    type="number" placeholder="Ej. 450" value={precio} onChange={e => setPrecio(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  <label htmlFor="precio" className="block text-xs font-semibold text-ink-muted uppercase mb-1">
+                    Precio ($)
+                  </label>
+                  <input
+                    id="precio" type="number" min="0" step="any" placeholder="Ej. 450" value={precio}
+                    onChange={(e) => setPrecio(e.target.value)}
+                    aria-invalid={!!erroresFlete.precio}
+                    className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                   />
+                  {erroresFlete.precio && <p role="alert" className="text-rust text-xs mt-1">{erroresFlete.precio}</p>}
                 </div>
               </div>
-              <button className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-medium rounded-lg text-sm transition">
-                Añadir Flete
+              <button
+                disabled={creandoFlete}
+                className="w-full py-2.5 bg-amber hover:bg-amber-dark disabled:opacity-60 text-ink font-display font-semibold uppercase tracking-wide rounded-lg text-sm transition"
+              >
+                {creandoFlete ? 'Agregando…' : 'Añadir flete'}
               </button>
             </form>
           </div>
@@ -263,130 +441,69 @@ export default function App() {
 
         {/* COLUMNA DERECHA: DASHBOARD DE CLIENTES */}
         <div className="lg:col-span-2 space-y-4">
-          <h2 className="text-xl font-bold text-slate-700 mb-2 no-print">Cartera de Clientes y Fletes</h2>
-          
-          {clientes.length === 0 ? (
-            <div className="bg-white rounded-2xl p-8 text-center border border-dashed border-slate-200 text-slate-400">
-              No hay clientes registrados en la base de datos.
+          <div className="flex flex-wrap items-center justify-between gap-3 no-print">
+            <h2 className="font-display font-semibold uppercase tracking-wide text-base text-ink">
+              Cartera de clientes
+            </h2>
+            <div className="flex items-center gap-2">
+              <input
+                type="search"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Buscar cliente o empresa…"
+                aria-label="Buscar cliente o empresa"
+                className="px-3 py-1.5 bg-paper-card border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none w-44 md:w-56"
+              />
+              <select
+                value={orden}
+                onChange={(e) => setOrden(e.target.value)}
+                aria-label="Ordenar clientes"
+                className="px-2 py-1.5 bg-paper-card border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
+              >
+                <option value="recientes">Recientes</option>
+                <option value="total-desc">Mayor total</option>
+                <option value="nombre-asc">Nombre A-Z</option>
+              </select>
+            </div>
+          </div>
+
+          {cargandoClientes ? (
+            <div className="space-y-4" aria-busy="true" aria-label="Cargando clientes">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="bg-paper-card rounded-2xl border border-line h-32 animate-pulse" />
+              ))}
+            </div>
+          ) : clientesVisibles.length === 0 ? (
+            <div className="bg-paper-card rounded-2xl p-8 text-center border border-dashed border-line text-ink-muted">
+              {clientes.length === 0
+                ? 'No hay clientes registrados todavía. Agrega el primero desde el formulario.'
+                : 'Ningún cliente coincide con tu búsqueda.'}
             </div>
           ) : (
-            clientes.map(cliente => (
-              <div key={cliente.id} className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-                
-                {/* Cabecera del cliente */}
-                <div className="bg-slate-100 px-6 py-4 flex justify-between items-center border-b border-slate-200">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-bold text-slate-800 text-base">{cliente.nombre}</h3>
-                      <button 
-                        onClick={() => confirmarEliminarCliente(cliente.id, cliente.nombre)}
-                        className="no-print text-xs text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-2 py-0.5 rounded-md transition font-medium"
-                      >
-                        🗑️ Borrar
-                      </button>
-                    </div>
-                    <p className="text-xs text-slate-500">{cliente.empresa}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs font-semibold text-slate-400 block uppercase">Precio Total Final</span>
-                    <span className="text-xl font-black text-indigo-600">${(cliente.totalFinal || 0).toLocaleString()}</span>
-                  </div>
-                </div>
-
-                {/* Listado de Fletes */}
-                <div className="p-6">
-                  {cliente.fletes && cliente.fletes.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-slate-100 text-slate-400 text-xs font-bold uppercase">
-                            <th className="pb-2">Fecha</th>
-                            <th className="pb-2">Material / Unidad</th>
-                            <th className="pb-2 text-center">Cantidad</th>
-                            <th className="pb-2 text-right">Precio Unitario</th>
-                            <th className="pb-2 text-right no-print">Acción</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-50 text-sm text-slate-600">
-                          {cliente.fletes.map(flete => {
-                            const nombreLimpio = flete.tipoMaterial ? flete.tipoMaterial.split(' ')[0] : '';
-                            const estilo = MATERIALES_CONFIG[nombreLimpio] || COLOR_DEFECTO;
-
-                            return (
-                              <tr key={flete.id} className="hover:bg-slate-50/50">
-                                <td className="py-2.5 text-xs text-slate-500 font-medium">
-                                  {flete.fecha ? flete.fecha.split('-').reverse().join('/') : 'S/F'}
-                                </td>
-                                <td className="py-2.5">
-                                  <span className={`inline-block px-2.5 py-0.5 text-xs font-bold rounded-full border ${estilo.bg} ${estilo.text} ${estilo.border}`}>
-                                    {flete.tipoMaterial}
-                                  </span>
-                                </td>
-                                
-                                <td className="py-2.5 text-center font-semibold text-slate-800">
-                                  <span className="font-mono bg-slate-100 px-2 py-0.5 rounded text-slate-600">
-                                    {flete.cantidad}
-                                  </span>
-                                </td>
-
-                                <td className="py-2.5 text-right font-semibold text-slate-900">
-                                  ${(flete.precio || 0).toLocaleString()}
-                                </td>
-                                <td className="py-2.5 text-right no-print">
-                                  <button 
-                                    onClick={() => confirmarEliminarFlete(cliente.id, flete.id)}
-                                    className="text-red-400 hover:text-red-600 font-medium text-xs transition px-2 py-1 rounded hover:bg-red-50"
-                                  >
-                                    ✕
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 italic text-center py-2">Este cliente no registra fletes de momento.</p>
-                  )}
-                </div>
-
-              </div>
+            clientesVisibles.map((cliente) => (
+              <ClientTicket
+                key={cliente.id}
+                cliente={cliente}
+                onEliminarCliente={confirmarEliminarCliente}
+                onEliminarFlete={confirmarEliminarFlete}
+                eliminandoId={eliminandoFleteId}
+              />
             ))
           )}
         </div>
 
       </main>
 
-      {/* MODAL DE CONFIRMACIÓN CENTRADO */}
-      {modalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 no-print">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-100">
-            <div className="flex items-center gap-3 text-red-600 mb-3">
-              <span className="text-2xl">⚠️</span>
-              <h4 className="text-lg font-bold text-slate-800">{modalConfig.titulo}</h4>
-            </div>
-            <p className="text-sm text-slate-600 leading-relaxed mb-6">
-              {modalConfig.mensaje}
-            </p>
-            <div className="flex justify-end gap-2">
-              <button 
-                onClick={() => setModalOpen(false)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold rounded-xl transition"
-              >
-                Cancelar
-              </button>
-              <button 
-                onClick={modalConfig.accion}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition shadow-sm"
-              >
-                Sí, Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal
+        open={modal.open}
+        titulo={modal.titulo}
+        mensaje={modal.mensaje}
+        cargando={eliminandoModal}
+        onCancel={() => setModal((m) => ({ ...m, open: false }))}
+        onConfirm={() => modal.accion && modal.accion()}
+      />
 
+      <ToastStack toasts={toasts} onDismiss={descartarToast} />
     </div>
   );
 }

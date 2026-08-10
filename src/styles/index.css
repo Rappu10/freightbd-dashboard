@@ -2,4 +2,66 @@
 @tailwind components;
 @tailwind utilities;
 
-body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; }
+:root {
+  color-scheme: light;
+}
+
+body {
+  font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background-color: #F3EDE0;
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(33, 29, 24, 0.06) 1px, transparent 0);
+  background-size: 22px 22px;
+}
+
+/* Visible focus ring everywhere, keyboard-only look handled by :focus-visible */
+:focus-visible {
+  outline: 2px solid #E8A33D;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Perforated tear-line between a ticket's header and its body,
+   evoking the stub you'd tear off a real delivery/weigh ticket. */
+.ticket-perforation {
+  position: relative;
+  border-top: 1px dashed #D8CBB0;
+}
+.ticket-perforation::before,
+.ticket-perforation::after {
+  content: '';
+  position: absolute;
+  top: -6px;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #F3EDE0;
+  border: 1px solid #D8CBB0;
+}
+.ticket-perforation::before { left: -7px; }
+.ticket-perforation::after { right: -7px; }
+
+/* Rubber-stamp styling for the running total on each client ticket */
+.stamp {
+  transform: rotate(-2deg);
+}
+
+.font-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media print {
+  header, .no-print, button, form { display: none !important; }
+  body { background: white !important; }
+  main { display: block !important; max-width: 100% !important; padding: 0 !important; }
+  .ticket-card { border: 1px solid #ccc !important; box-shadow: none !important; break-inside: avoid; }
+}
