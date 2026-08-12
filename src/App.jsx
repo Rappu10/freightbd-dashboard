@@ -23,6 +23,8 @@ export default function App() {
   const [token, setToken] = useState(() => leerSesionGuardada());
   const [clientes, setClientes] = useState([]);
   const [cargandoClientes, setCargandoClientes] = useState(true);
+  const [mostrarBienvenida, setMostrarBienvenida] = useState(false);
+  const usuarioActual = 'Usuario';
 
   const [toasts, setToasts] = useState([]);
   const notificar = useCallback((mensaje, tipo = 'exito') => {
@@ -53,7 +55,18 @@ export default function App() {
     localStorage.setItem(TOKEN_KEY, nuevoToken);
     localStorage.setItem(TOKEN_EXP_KEY, String(expira));
     setToken(nuevoToken);
+    setMostrarBienvenida(true);
   };
+
+  useEffect(() => {
+    if (!token) {
+      setMostrarBienvenida(false);
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => setMostrarBienvenida(false), 5000);
+    return () => clearTimeout(timeoutId);
+  }, [token]);
 
   // ---- Carga de clientes ----
   const cargarClientes = useCallback(async () => {
@@ -145,6 +158,10 @@ export default function App() {
 
   const validarFlete = () => {
     const errores = {};
+    const hoy = new Date();
+    const inicioAnioActual = new Date(hoy.getFullYear(), 0, 1);
+    const fechaSeleccionada = fecha ? new Date(`${fecha}T00:00:00`) : null;
+
     if (!clienteSeleccionado) errores.clienteSeleccionado = 'Elige un cliente.';
     if (!MATERIALES_DISPONIBLES.includes(tipoMaterial)) errores.tipoMaterial = 'Elige un material.';
     if (!UNIDADES_DISPONIBLES.includes(unidadMedida)) errores.unidadMedida = 'Elige una unidad.';
@@ -154,7 +171,13 @@ export default function App() {
     const precioNum = Number(precio);
     if (!precio || Number.isNaN(precioNum) || precioNum <= 0) errores.precio = 'Precio inválido.';
     else if (precioNum >= 10000000) errores.precio = 'Precio demasiado grande.';
-    if (!fecha) errores.fecha = 'Elige una fecha.';
+    if (!fecha) {
+      errores.fecha = 'Elige una fecha.';
+    } else if (fechaSeleccionada > hoy) {
+      errores.fecha = 'La fecha del trabajo no puede estar en el futuro.';
+    } else if (fechaSeleccionada < inicioAnioActual) {
+      errores.fecha = 'La fecha del trabajo no puede ser anterior al año en curso.';
+    }
     setErroresFlete(errores);
     return Object.keys(errores).length === 0;
   };
@@ -273,11 +296,16 @@ export default function App() {
     );
 
     if (orden === 'total-desc') {
-      lista = [...lista].sort((a, b) => (b.totalFinal || 0) - (a.totalFinal || 0));
+      lista = [...lista]
+        .filter((c) => (Number(c.totalFinal) || 0) > 0)
+        .sort((a, b) => (Number(b.totalFinal) || 0) - (Number(a.totalFinal) || 0))
+        .slice(0, 3);
     } else if (orden === 'nombre-asc') {
       lista = [...lista].sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
     } else {
-      lista = [...lista].sort((a, b) => (b.creadoEn || '').localeCompare(a.creadoEn || ''));
+      lista = [...lista]
+        .sort((a, b) => (b.creadoEn || '').localeCompare(a.creadoEn || ''))
+        .slice(0, 5);
     }
     return lista;
   }, [clientes, busqueda, orden]);
@@ -379,7 +407,31 @@ export default function App() {
         </div>
       </header>
 
-      {/* Resumen */}
+      {mostrarBienvenida && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-6 pointer-events-none">
+          <div className="pointer-events-auto w-full max-w-md rounded-2xl border border-pine/30 bg-paper-card/95 p-4 shadow-ticket backdrop-blur-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-pine">Bienvenido</p>
+                <h2 className="font-display text-2xl uppercase tracking-wide text-ink">{usuarioActual}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMostrarBienvenida(false)}
+                className="rounded-full border border-line bg-white/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-ink-muted transition hover:text-ink"
+              >
+                Cerrar
+              </button>
+            </div>
+            <ul className="mt-3 list-disc pl-5 text-sm text-ink-muted space-y-1">
+              <li>Revisa los clientes sin fletes.</li>
+              <li>Completa los clientes sin empresa.</li>
+              <li>Monitorea la facturación por encima de $100,000.</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto px-6 md:px-8 pt-6 no-print">
         <div className="grid grid-cols-3 gap-3 md:gap-4">
           <div className="bg-paper-card border border-line rounded-xl px-4 py-3">
@@ -566,7 +618,12 @@ export default function App() {
                   Fecha del trabajo
                 </label>
                 <input
-                  id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)}
+                  id="fecha"
+                  type="date"
+                  value={fecha}
+                  min={`${new Date().getFullYear()}-01-01`}
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={(e) => setFecha(e.target.value)}
                   aria-invalid={!!erroresFlete.fecha}
                   className="w-full px-3 py-2 bg-white border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
                 />
@@ -631,9 +688,9 @@ export default function App() {
                 aria-label="Ordenar clientes"
                 className="px-2 py-1.5 bg-paper-card border border-line rounded-lg text-sm focus:ring-2 focus:ring-amber focus:outline-none"
               >
-                <option value="recientes">Recientes</option>
-                <option value="total-desc">Mayor total</option>
-                <option value="nombre-asc">Nombre A-Z</option>
+                <option value="recientes">Recientes (top 5)</option>
+                <option value="total-desc">Mayor total (top 3)</option>
+                <option value="nombre-asc">Todos por A-Z</option>
               </select>
             </div>
           </div>

@@ -2,6 +2,33 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
 export default function Login({ onLogin }) {
+  const EyeIcon = ({ open }) => (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      className="h-5 w-5 text-ink-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {open ? (
+        <>
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z" />
+          <circle cx="12" cy="12" r="2.5" />
+        </>
+      ) : (
+        <>
+          <path d="M3 3l18 18" />
+          <path d="M10.6 10.6A2.5 2.5 0 0 0 13.4 13.4" />
+          <path d="M9.1 5.5A12.4 12.4 0 0 1 12 5c6.5 0 10 7 10 7a17.3 17.3 0 0 1-4.5 5.6" />
+          <path d="M6.1 6.1A17.9 17.9 0 0 0 2 12s3.5 7 10 7a11.7 11.7 0 0 0 5.1-1.2" />
+        </>
+      )}
+    </svg>
+  );
+
   const [modo, setModo] = useState('usuario');
   const [password, setPassword] = useState('');
   const [bypassToken, setBypassToken] = useState('');
@@ -14,6 +41,9 @@ export default function Login({ onLogin }) {
   const [cargandoAdmin, setCargandoAdmin] = useState(false);
   const [error, setError] = useState('');
   const [tiempoBloqueado, setTiempoBloqueado] = useState(0);
+  const [mostrarPasswordUsuario, setMostrarPasswordUsuario] = useState(false);
+  const [mostrarPasswordAdmin, setMostrarPasswordAdmin] = useState(false);
+  const [mostrarNuevaPassword, setMostrarNuevaPassword] = useState(false);
 
   useEffect(() => {
     if (tiempoBloqueado <= 0) return undefined;
@@ -187,18 +217,28 @@ export default function Login({ onLogin }) {
             <label htmlFor="password" className="block text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">
               Contraseña
             </label>
-            <input
-              id="password"
-              type="password"
-              autoFocus
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              aria-invalid={!!error}
-              aria-describedby={error ? 'login-error' : undefined}
-              className="w-full px-3 py-2.5 bg-white border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input
+                id="password"
+                type={mostrarPasswordUsuario ? 'text' : 'password'}
+                autoFocus
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                aria-invalid={!!error}
+                aria-describedby={error ? 'login-error' : undefined}
+                className="w-full px-3 py-2.5 pr-10 bg-white border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarPasswordUsuario((v) => !v)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white/80 text-ink-muted transition hover:text-ink focus:outline-none focus:ring-2 focus:ring-amber/50"
+                aria-label={mostrarPasswordUsuario ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+              >
+                <EyeIcon open={mostrarPasswordUsuario} />
+              </button>
+            </div>
 
             <div className="mt-4">
               <label htmlFor="bypass-token" className="block text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">
@@ -256,13 +296,23 @@ export default function Login({ onLogin }) {
                   <label htmlFor="admin-pass" className="block text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">
                     Contraseña
                   </label>
-                  <input
-                    id="admin-pass"
-                    type="password"
-                    value={adminPassword}
-                    onChange={(e) => setAdminPassword(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-white border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-                  />
+                  <div className="relative">
+                    <input
+                      id="admin-pass"
+                      type={mostrarPasswordAdmin ? 'text' : 'password'}
+                      value={adminPassword}
+                      onChange={(e) => setAdminPassword(e.target.value)}
+                      className="w-full px-3 py-2.5 pr-10 bg-white border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setMostrarPasswordAdmin((v) => !v)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white/80 text-ink-muted transition hover:text-ink focus:outline-none focus:ring-2 focus:ring-amber/50"
+                      aria-label={mostrarPasswordAdmin ? 'Ocultar contraseña de administrador' : 'Mostrar contraseña de administrador'}
+                    >
+                      <EyeIcon open={mostrarPasswordAdmin} />
+                    </button>
+                  </div>
                 </div>
                 <button
                   type="submit"
@@ -297,14 +347,24 @@ export default function Login({ onLogin }) {
                     <label htmlFor="new-pass" className="block text-xs font-semibold text-ink-muted uppercase tracking-wide mb-1">
                       Nueva contraseña del dashboard
                     </label>
-                    <input
-                      id="new-pass"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      className="w-full px-3 py-2.5 bg-white border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber"
-                      placeholder="Mínimo 8 caracteres"
-                    />
+                    <div className="relative">
+                      <input
+                        id="new-pass"
+                        type={mostrarNuevaPassword ? 'text' : 'password'}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="w-full px-3 py-2.5 pr-10 bg-white border border-line rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber"
+                        placeholder="Mínimo 8 caracteres"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMostrarNuevaPassword((v) => !v)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-md border border-line bg-white/80 text-ink-muted transition hover:text-ink focus:outline-none focus:ring-2 focus:ring-amber/50"
+                        aria-label={mostrarNuevaPassword ? 'Ocultar nueva contraseña' : 'Mostrar nueva contraseña'}
+                      >
+                        <EyeIcon open={mostrarNuevaPassword} />
+                      </button>
+                    </div>
                   </div>
                   <button
                     type="submit"
