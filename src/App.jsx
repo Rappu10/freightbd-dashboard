@@ -81,10 +81,30 @@ export default function App() {
 
   const validarCliente = () => {
     const errores = {};
-    const nombreLimpio = nombre.trim();
-    if (!nombreLimpio) errores.nombre = 'El nombre es obligatorio.';
-    else if (nombreLimpio.length < 2) errores.nombre = 'Escribe al menos 2 caracteres.';
-    else if (nombreLimpio.length > 100) errores.nombre = 'Máximo 100 caracteres.';
+    const nombreLimpio = nombre.trim().replace(/\s+/g, ' ');
+
+    if (!nombreLimpio) {
+      errores.nombre = 'El nombre completo es obligatorio.';
+    } else if (nombreLimpio.length < 2) {
+      errores.nombre = 'Escribe al menos 2 caracteres.';
+    } else if (nombreLimpio.length > 100) {
+      errores.nombre = 'Máximo 100 caracteres.';
+    } else if (/\s{2,}/.test(nombreLimpio)) {
+      errores.nombre = 'Evita dejar espacios dobles entre palabras.';
+    } else if (!/^[A-Za-zÁÉÍÓÚáéíóúÑñÜü\s.'-]+$/.test(nombreLimpio)) {
+      errores.nombre = 'Solo se permiten letras, espacios, acentos, puntos, apóstrofes y guiones.';
+    } else if (/^[\s.'-]+$/.test(nombreLimpio) || /[\s.'-]+$/.test(nombreLimpio)) {
+      errores.nombre = 'El nombre no puede iniciar ni terminar con espacios, puntos, guiones o apóstrofes.';
+    } else {
+      const palabras = nombreLimpio.split(/\s+/).filter(Boolean);
+      if (palabras.length < 2) {
+        errores.nombre = 'Escribe nombre y apellido completos.';
+      }
+      if (palabras.some((palabra) => palabra.length < 2)) {
+        errores.nombre = 'Cada palabra debe tener al menos 2 caracteres.';
+      }
+    }
+
     if (empresa.trim().length > 150) errores.empresa = 'Máximo 150 caracteres.';
     setErroresCliente(errores);
     return Object.keys(errores).length === 0;
@@ -214,7 +234,31 @@ export default function App() {
     });
   };
 
-  const exportarAPDF = () => window.print();
+  const exportarAPDF = (clienteId = null) => {
+    const cards = document.querySelectorAll('.ticket-card');
+    cards.forEach((card) => {
+      card.classList.remove('pdf-single-target', 'pdf-hidden-export');
+      if (clienteId) {
+        if (card.id === `cliente-${clienteId}`) {
+          card.classList.add('pdf-single-target');
+        } else {
+          card.classList.add('pdf-hidden-export');
+        }
+      }
+    });
+
+    document.body.classList.toggle('pdf-single-export', Boolean(clienteId));
+    document.body.classList.toggle('pdf-all-export', !clienteId);
+
+    const limpiar = () => {
+      document.body.classList.remove('pdf-single-export', 'pdf-all-export');
+      cards.forEach((card) => card.classList.remove('pdf-single-target', 'pdf-hidden-export'));
+      window.removeEventListener('afterprint', limpiar);
+    };
+
+    window.addEventListener('afterprint', limpiar, { once: true });
+    window.print();
+  };
 
   // ---- Búsqueda y orden ----
   const [busqueda, setBusqueda] = useState('');
@@ -243,6 +287,67 @@ export default function App() {
     const totalFletes = clientes.reduce((sum, c) => sum + (c.fletes?.length || 0), 0);
     return { totalClientes: clientes.length, totalFletes, totalFacturado };
   }, [clientes]);
+
+  const triggerSummary = useMemo(() => {
+    const clientesSinFletes = clientes.filter((c) => !(c.fletes?.length)).length;
+    const clientesSinEmpresa = clientes.filter((c) => !String(c.empresa || '').trim()).length;
+    const clientesConMontoAlto = clientes.filter((c) => (c.totalFinal || 0) > 100000).length;
+
+    return {
+      clientesSinFletes,
+      clientesSinEmpresa,
+      clientesConMontoAlto
+    };
+  }, [clientes]);
+
+  const alertas = useMemo(() => {
+    const lista = [];
+
+    if (clientes.length === 0) {
+      lista.push({ nivel: 'info', mensaje: 'Aún no hay clientes registrados.' });
+      return lista;
+    }
+
+    if (triggerSummary.clientesSinFletes > 0) {
+      const clientesAFijar = clientes.filter((c) => !(c.fletes?.length));
+      lista.push({
+        nivel: 'warning',
+        mensaje: `${triggerSummary.clientesSinFletes} cliente${triggerSummary.clientesSinFletes > 1 ? 's' : ''} sin fletes asignados.`,
+        clientes: clientesAFijar.map((c) => ({ id: c.id, nombre: c.nombre }))
+      });
+    }
+
+    if (triggerSummary.clientesSinEmpresa > 0) {
+      const clientesSinEmpresaLista = clientes.filter((c) => !String(c.empresa || '').trim());
+      lista.push({
+        nivel: 'warning',
+        mensaje: `${triggerSummary.clientesSinEmpresa} cliente${triggerSummary.clientesSinEmpresa > 1 ? 's' : ''} sin empresa registrada.`,
+        clientes: clientesSinEmpresaLista.map((c) => ({ id: c.id, nombre: c.nombre }))
+      });
+    }
+
+    if (triggerSummary.clientesConMontoAlto > 0) {
+      const clientesMontoAlto = clientes.filter((c) => (c.totalFinal || 0) > 100000);
+      lista.push({
+        nivel: 'danger',
+        mensaje: `${triggerSummary.clientesConMontoAlto} cliente${triggerSummary.clientesConMontoAlto > 1 ? 's' : ''} con facturación superior a $100,000.`,
+        clientes: clientesMontoAlto.map((c) => ({ id: c.id, nombre: c.nombre }))
+      });
+    }
+
+    if (lista.length === 0) {
+      lista.push({ nivel: 'success', mensaje: 'Todo en orden: sin alertas activas.' });
+    }
+
+    return lista;
+  }, [clientes, triggerSummary]);
+
+  const irAlCliente = (clienteId) => {
+    const elemento = document.getElementById(`cliente-${clienteId}`);
+    if (!elemento) return;
+    elemento.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    elemento.focus({ preventScroll: true });
+  };
 
   if (!token) {
     return <Login onLogin={iniciarSesion} />;
@@ -288,6 +393,72 @@ export default function App() {
           <div className="bg-paper-card border border-line rounded-xl px-4 py-3">
             <span className="text-[10px] md:text-xs font-semibold text-ink-muted uppercase tracking-wide block">Facturado</span>
             <span className="font-display font-bold text-xl md:text-2xl text-pine">${formatMoney(resumen.totalFacturado)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-6 md:px-8 pt-6 no-print">
+        <div className="bg-paper-card border border-line rounded-2xl p-5 shadow-ticket">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <p className="text-[10px] md:text-xs font-semibold text-ink-muted uppercase tracking-wide">Situación de triggers</p>
+              <h3 className="font-display font-semibold uppercase text-base text-ink">Estado operativo</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex items-center gap-2 rounded-full border border-line bg-ink/5 px-2.5 py-1 text-[11px] font-medium text-ink">
+                <span className="w-2 h-2 rounded-full bg-amber" aria-hidden="true" />
+                Sin fletes: {triggerSummary.clientesSinFletes}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-line bg-ink/5 px-2.5 py-1 text-[11px] font-medium text-ink">
+                <span className="w-2 h-2 rounded-full bg-rust" aria-hidden="true" />
+                Sin empresa: {triggerSummary.clientesSinEmpresa}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-line bg-ink/5 px-2.5 py-1 text-[11px] font-medium text-ink">
+                <span className="w-2 h-2 rounded-full bg-pine" aria-hidden="true" />
+                Monto alto: {triggerSummary.clientesConMontoAlto}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {alertas.map((alerta, index) => (
+              <div
+                key={`${alerta.nivel}-${index}`}
+                className={`rounded-xl border px-3 py-2 text-sm ${
+                  alerta.nivel === 'danger'
+                    ? 'border-rust/40 bg-rust/5 text-rust'
+                    : alerta.nivel === 'warning'
+                      ? 'border-amber/50 bg-amber/10 text-ink'
+                      : alerta.nivel === 'info'
+                        ? 'border-sky-200 bg-sky-50 text-sky-800'
+                        : 'border-pine/40 bg-pine/5 text-pine'
+                }`}
+                role="alert"
+              >
+                <div className="font-semibold uppercase tracking-wide text-[10px] mb-1">Alerta</div>
+                <p>{alerta.mensaje}</p>
+
+                {alerta.clientes && alerta.clientes.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {alerta.clientes.slice(0, 3).map((cliente) => (
+                      <button
+                        key={cliente.id}
+                        type="button"
+                        onClick={() => irAlCliente(cliente.id)}
+                        className="inline-flex items-center rounded-full border border-current/30 bg-white/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide hover:bg-white/70 transition"
+                      >
+                        Ver {cliente.nombre}
+                      </button>
+                    ))}
+                    {alerta.clientes.length > 3 && (
+                      <span className="inline-flex items-center rounded-full border border-current/30 bg-white/40 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide">
+                        +{alerta.clientes.length - 3} más
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </div>
@@ -486,6 +657,7 @@ export default function App() {
                 cliente={cliente}
                 onEliminarCliente={confirmarEliminarCliente}
                 onEliminarFlete={confirmarEliminarFlete}
+                onExportarCliente={exportarAPDF}
                 eliminandoId={eliminandoFleteId}
               />
             ))

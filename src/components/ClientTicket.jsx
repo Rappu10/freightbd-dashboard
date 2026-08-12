@@ -10,9 +10,27 @@ const MATERIALES_CONFIG = {
 };
 const COLOR_DEFECTO = { bg: 'bg-line/40', text: 'text-ink-soft', border: 'border-line' };
 
-export default function ClientTicket({ cliente, onEliminarCliente, onEliminarFlete, eliminandoId }) {
+export default function ClientTicket({ cliente, onEliminarCliente, onEliminarFlete, onExportarCliente, eliminandoId }) {
+  const totalFacturado = (cliente.fletes || []).reduce((sum, flete) => sum + (Number(flete.precio) || 0), 0);
+  const totalFletes = cliente.fletes?.length || 0;
+
   return (
-    <div className="ticket-card bg-paper-card rounded-2xl shadow-ticket border border-line overflow-hidden">
+    <div
+      id={`cliente-${cliente.id}`}
+      tabIndex={-1}
+      className="ticket-card bg-paper-card rounded-2xl shadow-ticket border border-line overflow-hidden focus:outline-none focus:ring-2 focus:ring-amber"
+    >
+      <div className="print-export-header">
+        <div>
+          <span className="print-kicker">FreightBD</span>
+          <h4>Comprobante de cliente</h4>
+        </div>
+        <div className="print-meta">
+          <span>Cliente: {cliente.nombre}</span>
+          <span>Empresa: {cliente.empresa || 'Sin empresa'}</span>
+        </div>
+      </div>
+
       {/* Cabecera del cliente */}
       <div className="px-6 py-4 flex justify-between items-start gap-3">
         <div className="min-w-0">
@@ -36,10 +54,27 @@ export default function ClientTicket({ cliente, onEliminarCliente, onEliminarFle
         </div>
       </div>
 
-      <div className="px-6">
+      <div className="px-6 pb-3 print-summary-row">
+        <div className="print-summary-item">
+          <span>Fletes</span>
+          <strong>{totalFletes}</strong>
+        </div>
+        <div className="print-summary-item">
+          <span>Facturado</span>
+          <strong>${formatMoney(totalFacturado)}</strong>
+        </div>
+      </div>
+
+      <div className="px-6 flex flex-wrap gap-2 no-print">
+        <button
+          onClick={() => onExportarCliente(cliente.id)}
+          className="text-xs text-ink hover:text-ink bg-amber hover:bg-amber-dark px-2.5 py-1 rounded-md transition font-medium"
+        >
+          Exportar PDF
+        </button>
         <button
           onClick={() => onEliminarCliente(cliente.id, cliente.nombre)}
-          className="no-print text-xs text-rust hover:text-rust-dark bg-rust-light hover:bg-rust-light/70 px-2.5 py-1 rounded-md transition font-medium"
+          className="text-xs text-rust hover:text-rust-dark bg-rust-light hover:bg-rust-light/70 px-2.5 py-1 rounded-md transition font-medium"
         >
           Eliminar cliente
         </button>

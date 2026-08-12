@@ -12,6 +12,7 @@ export class SesionExpiradaError extends Error {}
  * pueda mandar al usuario de vuelta al login.
  */
 export async function apiFetch(path, { token, ...options } = {}) {
+  const esLogin = path.includes('/auth/login');
   let res;
   try {
     res = await fetch(`${API_URL}${path}`, {
@@ -26,7 +27,7 @@ export async function apiFetch(path, { token, ...options } = {}) {
     throw new Error('No se pudo conectar con el servidor. Revisa tu conexión.');
   }
 
-  if (res.status === 401) {
+  if (res.status === 401 && !esLogin) {
     throw new SesionExpiradaError('Tu sesión expiró. Vuelve a iniciar sesión.');
   }
 
@@ -38,7 +39,15 @@ export async function apiFetch(path, { token, ...options } = {}) {
   }
 
   if (!res.ok) {
-    throw new Error((data && data.error) || 'Ocurrió un error inesperado.');
+    if (esLogin && res.status === 401) {
+      throw new Error('La contraseña es incorrecta o no existe.');
+    }
+
+    const error = new Error((data && data.error) || 'Ocurrió un error inesperado.');
+    if (data && typeof data.remainingSeconds === 'number') {
+      error.remainingSeconds = data.remainingSeconds;
+    }
+    throw error;
   }
 
   return data;

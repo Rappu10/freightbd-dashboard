@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -18,13 +21,100 @@ const {
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOGIN_BLOCK_MS = 60 * 60 * 1000;
+const PASSWORD_STORE_PATH = path.join(__dirname, 'password-store.json');
+const loginAttemptStore = new Map();
+
+function readPasswordStore() {
+  try {
+    const raw = fs.readFileSync(PASSWORD_STORE_PATH, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    const seed = {
+      appPasswordHash: process.env.APP_PASSWORD_HASH || '',
+      adminUsername: process.env.ADMIN_USERNAME || 'admin',
+      adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin123!', 12),
+      bypassTokens: []
+    };
+    fs.writeFileSync(PASSWORD_STORE_PATH, JSON.stringify(seed, null, 2));
+    return seed;
+  }
+}
+
+function persistPasswordStore() {
+  fs.writeFileSync(PASSWORD_STORE_PATH, JSON.stringify({
+    appPasswordHash: APP_PASSWORD_HASH,
+    adminUsername: ADMIN_USERNAME,
+    adminPasswordHash: ADMIN_PASSWORD_HASH,
+    bypassTokens: bypassTokens.filter((token) => token.expiresAt > Date.now())
+  }, null, 2));
+}
+
+function hashToken(token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+}
+
+function findValidBypassTokenIndex(token) {
+  if (!token || !String(token).trim()) return -1;
+  const tokenHash = hashToken(token);
+  const ahora = Date.now();
+  return bypassTokens.findIndex((entry) => entry.tokenHash === tokenHash && entry.expiresAt > ahora);
+}
+
+function consumeBypassToken(token) {
+  const indice = findValidBypassTokenIndex(token);
+  if (indice === -1) return false;
+  bypassTokens.splice(indice, 1);
+  persistPasswordStore();
+  return true;
+}
+
+function isBypassTokenValid(token) {
+  return consumeBypassToken(token);
+}
+
+function hasValidBypassToken(token) {
+  return findValidBypassTokenIndex(token) !== -1;
+}
+
+function getClientKey(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  return (forwarded ? forwarded.split(',')[0].trim() : req.ip) || 'unknown';
+}
+
+function getAttemptState(ip) {
+  const state = loginAttemptStore.get(ip);
+  if (!state) return null;
+  if (state.blockedUntil && Date.now() > state.blockedUntil) {
+    loginAttemptStore.delete(ip);
+    return null;
+  }
+  return state;
+}
+
+function marcarIntentoFallido(ip) {
+  const ahora = Date.now();
+  const actual = loginAttemptStore.get(ip) || { count: 0, blockedUntil: 0 };
+  actual.count += 1;
+  if (actual.count >= MAX_LOGIN_ATTEMPTS) {
+    actual.blockedUntil = ahora + LOGIN_BLOCK_MS;
+  }
+  loginAttemptStore.set(ip, actual);
+  return actual;
+}
+
+const passwordStore = readPasswordStore();
+let APP_PASSWORD_HASH = passwordStore.appPasswordHash;
+let ADMIN_USERNAME = passwordStore.adminUsername || 'admin';
+let ADMIN_PASSWORD_HASH = passwordStore.adminPasswordHash || bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin123!', 12);
+let bypassTokens = Array.isArray(passwordStore.bypassTokens) ? passwordStore.bypassTokens : [];
 
 // ---------------------------------------------------------------------------
 // Config / secretos. En Render: Settings > Environment Variables.
 // APP_PASSWORD_HASH se genera con `node generate-hash.js "tu-password"`.
 // JWT_SECRET puede ser cualquier cadena larga aleatoria (ej. openssl rand -hex 32).
 // ---------------------------------------------------------------------------
-const APP_PASSWORD_HASH = process.env.APP_PASSWORD_HASH;
 const JWT_SECRET = process.env.JWT_SECRET;
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIGIN || '')
   .split(',')
@@ -71,6 +161,14 @@ const limiteLogin = rateLimit({
   max: 8,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    const token = req.body && req.body.bypassToken;
+    const valido = hasValidBypassToken(token);
+    if (valido) {
+      req.bypassValido = true;
+    }
+    return valido;
+  },
   message: { error: 'Demasiados intentos de acceso. Intenta de nuevo en 15 minutos.' }
 });
 
@@ -86,20 +184,50 @@ app.get('/api/ping', (req, res) => res.json({ ok: true }));
 app.post(
   '/api/auth/login',
   limiteLogin,
-  body('password').isString().isLength({ min: 1, max: 200 }),
+  body('bypassToken').optional({ values: 'falsy' }).isString().isLength({ min: 1, max: 200 }),
   (req, res) => {
     const errores = validationResult(req);
     if (!errores.isEmpty()) {
+      return res.status(400).json({ error: 'Token o contraseña inválidos.' });
+    }
+
+    const { password, bypassToken } = req.body || {};
+    if ((!password || !String(password).trim()) && !bypassToken) {
       return res.status(400).json({ error: 'Contraseña requerida' });
     }
 
-    const { password } = req.body;
-    const valido = bcrypt.compareSync(password, APP_PASSWORD_HASH);
+    const ip = getClientKey(req);
+    const intentoActual = getAttemptState(ip);
+    const tokenV = !!bypassToken && hasValidBypassToken(bypassToken);
+    const bypassValido = req.bypassValido === true || tokenV;
 
-    if (!valido) {
+    if (intentoActual && intentoActual.blockedUntil && Date.now() < intentoActual.blockedUntil && !bypassValido) {
+      const remainingSeconds = Math.max(1, Math.ceil((intentoActual.blockedUntil - Date.now()) / 1000));
+      return res.status(429).json({
+        error: 'Demasiados intentos. Espera 1 hora o usa un token de administrador.',
+        remainingSeconds
+      });
+    }
+
+    const valido = !!password && bcrypt.compareSync(String(password), APP_PASSWORD_HASH);
+
+    if (!valido && !tokenV) {
+      const intento = marcarIntentoFallido(ip);
+      if (intento.count >= MAX_LOGIN_ATTEMPTS) {
+        const remainingSeconds = Math.max(1, Math.ceil((intento.blockedUntil - Date.now()) / 1000));
+        return res.status(429).json({
+          error: 'Demasiados intentos. Espera 1 hora o usa un token de administrador.',
+          remainingSeconds
+        });
+      }
       return res.status(401).json({ error: 'Contraseña incorrecta' });
     }
 
+    if (tokenV) {
+      consumeBypassToken(bypassToken);
+    }
+
+    loginAttemptStore.delete(ip);
     const token = jwt.sign({ auth: true }, JWT_SECRET, { expiresIn: '12h' });
     res.json({ token, expiresIn: 12 * 60 * 60 });
   }
@@ -120,6 +248,82 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: 'Sesión inválida o expirada' });
   }
 }
+
+function requireAdminAuth(req, res, next) {
+  const header = req.headers.authorization || '';
+  const [scheme, token] = header.split(' ');
+
+  if (scheme !== 'Bearer' || !token) {
+    return res.status(401).json({ error: 'No autenticado' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    if (decoded.role !== 'admin') {
+      return res.status(403).json({ error: 'Se requiere acceso de administrador' });
+    }
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Sesión inválida o expirada' });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Rutas de administración
+// ---------------------------------------------------------------------------
+app.post(
+  '/api/admin/login',
+  body('username').isString().trim().notEmpty(),
+  body('password').isString().trim().notEmpty(),
+  (req, res) => {
+    const errores = validationResult(req);
+    if (!errores.isEmpty()) {
+      return res.status(400).json({ error: 'Usuario y contraseña de administrador requeridos.' });
+    }
+
+    const { username, password } = req.body;
+    if (username !== ADMIN_USERNAME) {
+      return res.status(401).json({ error: 'Credenciales de administrador inválidas.' });
+    }
+
+    if (!bcrypt.compareSync(password, ADMIN_PASSWORD_HASH)) {
+      return res.status(401).json({ error: 'Contraseña de administrador incorrecta.' });
+    }
+
+    const token = jwt.sign({ role: 'admin', username: ADMIN_USERNAME }, JWT_SECRET, { expiresIn: '12h' });
+    res.json({ token, expiresIn: 12 * 60 * 60 });
+  }
+);
+
+app.post(
+  '/api/admin/bypass-token',
+  requireAdminAuth,
+  (req, res) => {
+    const token = crypto.randomBytes(24).toString('hex');
+    const expiresAt = Date.now() + LOGIN_BLOCK_MS;
+    bypassTokens.push({ tokenHash: hashToken(token), expiresAt });
+    persistPasswordStore();
+    res.json({ token, expiresIn: Math.ceil((expiresAt - Date.now()) / 1000) });
+  }
+);
+
+app.post(
+  '/api/admin/password',
+  requireAdminAuth,
+  body('newPassword').isString().isLength({ min: 8, max: 200 }),
+  (req, res) => {
+    const errores = validationResult(req);
+    if (!errores.isEmpty()) {
+      return res.status(400).json({ error: 'La nueva contraseña debe tener al menos 8 caracteres.' });
+    }
+
+    const { newPassword } = req.body;
+    APP_PASSWORD_HASH = bcrypt.hashSync(newPassword, 12);
+    persistPasswordStore();
+    loginAttemptStore.clear();
+    res.json({ message: 'Contraseña del dashboard actualizada correctamente.' });
+  }
+);
 
 // ---------------------------------------------------------------------------
 // Reglas de validación reutilizables. Todo lo que llega del cliente se
