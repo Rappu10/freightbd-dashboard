@@ -105,11 +105,11 @@ Cuando ya tengas el dominio definitivo del frontend funcionando:
 
 ## Problema importante: pérdida de datos
 
-El backend guarda todo en `server/data.json`, un archivo en disco. En el plan **free** de Render, el disco es efímero: cada redeploy o reinicio del servicio borra ese archivo y vuelves a cero.
+El backend guarda todo en `server/data.sqlite`, un archivo SQLite en disco. En el plan **free** de Render, el disco es efímero: cada redeploy o reinicio del servicio borra ese archivo y vuelves a cero.
 
 Opciones si esto te importa (para un cliente real, sí importa):
 
-- **Render Disk** (plan pago, ~$1/mes por 1GB): monta un disco persistente en `/server` para que `data.json` sobreviva reinicios.
+- **Render Disk** (plan pago, ~$1/mes por 1GB): monta un disco persistente en `/server` para que `data.sqlite` sobreviva reinicios.
 - **Migrar a MongoDB Atlas** (como hiciste en PetroArte): más robusto, gratis en el tier free de Atlas, y no dependes del disco de Render.
 
 Si quieres, te ayudo a hacer esa migración a MongoDB Atlas — es la opción que yo recomendaría si esto va a producción con clientes reales.

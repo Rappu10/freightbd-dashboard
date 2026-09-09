@@ -18,12 +18,13 @@ const {
   crearFlete,
   eliminarFlete
 } = require('./db');
+const { obtenerClima } = require('./weather');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_BLOCK_MS = 60 * 60 * 1000;
-const PASSWORD_STORE_PATH = path.join(__dirname, 'password-store.json');
+const PASSWORD_STORE_PATH = process.env.PASSWORD_STORE_PATH || path.join(__dirname, 'password-store.json');
 const loginAttemptStore = new Map();
 
 function readPasswordStore() {
@@ -351,6 +352,15 @@ const manejarErroresValidacion = (req, res, next) => {
 // [GET] Obtener clientes
 app.get('/api/clientes', requireAuth, (req, res) => {
   res.json(obtenerClientes());
+});
+
+app.get('/api/weather', requireAuth, async (req, res) => {
+  try {
+    res.json(await obtenerClima());
+  } catch (error) {
+    console.error('No se pudo consultar Open-Meteo:', error.message);
+    res.status(503).json({ error: 'El servicio meteorológico no está disponible.' });
+  }
 });
 
 // [POST] Crear Cliente

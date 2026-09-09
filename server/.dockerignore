@@ -1,0 +1,5 @@
+node_modules
+.env
+data.sqlite*
+password-store.json
+npm-debug.log*

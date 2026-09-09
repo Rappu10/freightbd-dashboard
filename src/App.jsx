@@ -23,6 +23,7 @@ export default function App() {
   const [token, setToken] = useState(() => leerSesionGuardada());
   const [clientes, setClientes] = useState([]);
   const [cargandoClientes, setCargandoClientes] = useState(true);
+  const [clima, setClima] = useState(null);
   const [mostrarBienvenida, setMostrarBienvenida] = useState(false);
   const usuarioActual = 'Usuario';
 
@@ -85,6 +86,21 @@ export default function App() {
   useEffect(() => {
     if (token) cargarClientes();
   }, [token, cargarClientes]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    let activo = true;
+    apiFetch('/weather', { token })
+      .then((data) => {
+        if (activo) setClima(data);
+      })
+      .catch(() => {
+        if (activo) setClima(null);
+      });
+    return () => {
+      activo = false;
+    };
+  }, [token]);
 
   // ---- Formulario: nuevo cliente ----
   const [nombre, setNombre] = useState('');
@@ -447,6 +463,12 @@ export default function App() {
             <span className="font-display font-bold text-xl md:text-2xl text-pine">${formatMoney(resumen.totalFacturado)}</span>
           </div>
         </div>
+        {clima && (
+          <div className="mt-3 border border-line rounded-xl bg-paper-card px-4 py-3 text-sm text-ink-muted">
+            <span className="font-semibold text-ink">Clima en {clima.ubicacion}:</span>{' '}
+            {clima.temperatura}{clima.unidad} · {clima.condicion}
+          </div>
+        )}
       </div>
 
       <div className="max-w-7xl mx-auto px-6 md:px-8 pt-6 no-print">

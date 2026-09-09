@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Instalar frontend
+        run: npm ci
+      - name: Instalar backend
+        run: npm ci --prefix server
+      - name: Ejecutar pruebas automatizadas
+        run: npm test
+      - name: Verificar build del frontend
+        run: npm run build

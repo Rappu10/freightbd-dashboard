@@ -50,6 +50,40 @@ También puedes levantar ambos procesos desde la raíz:
 npm run start:all
 ```
 
+## Pruebas y documentación de entrega
+
+Ejecuta las pruebas automatizadas y el build de producción:
+
+```bash
+npm test
+npm run build
+```
+
+- Requisitos y diagrama: `REQUERIMIENTOS.md`
+- Manual breve de usuario: `MANUAL-USUARIO.md`
+- Evidencias de pruebas y despliegue: `EVIDENCIAS.md`
+- CI en GitHub Actions: `.github/workflows/ci.yml`
+
+## Docker
+
+Genera las variables obligatorias y levanta la aplicación completa:
+
+```bash
+cd server
+node generate-hash.js "tu-password-de-al-menos-8-caracteres"
+cd ..
+export APP_PASSWORD_HASH="el-hash-generado"
+export JWT_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+docker compose up --build -d
+```
+
+Abre `http://localhost:8080`. La base SQLite y el almacén de credenciales
+persisten en el volumen Docker `freightbd_data`. Para detener los servicios:
+
+```bash
+docker compose down
+```
+
 ## Seguridad
 
 - Acceso protegido por contraseña (hash bcrypt) + tokens JWT de 12 horas.
@@ -60,6 +94,9 @@ npm run start:all
   frontend, aunque el frontend también valide para dar feedback inmediato.
 - Cabeceras de seguridad HTTP vía `helmet`.
 - CORS restringido a orígenes configurables (`ALLOWED_ORIGINS`).
+- Consulta Open-Meteo mediante `GET /api/weather` para mostrar el clima de
+    referencia de Ciudad de México; si el servicio falla, el resto de la
+    aplicación continúa disponible.
 
 ## Persistencia de datos local
 

@@ -1,0 +1,27 @@
+services:
+  backend:
+    build:
+      context: ./server
+    environment:
+      APP_PASSWORD_HASH: ${APP_PASSWORD_HASH}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - freightbd_data:/app/storage
+    expose:
+      - "4000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      args:
+        VITE_API_URL: /api
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  freightbd_data:
