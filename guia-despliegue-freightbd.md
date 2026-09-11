@@ -23,6 +23,8 @@ En `server/.env` local o en Vercel configura:
 
 ```env
 APP_PASSWORD_HASH=hash-bcrypt-del-dashboard
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH=hash-bcrypt-del-administrador
 JWT_SECRET=secreto-largo-y-aleatorio
 MONGODB_URI=mongodb+srv://USUARIO:CONTRASENA@cluster.mongodb.net/?retryWrites=true&w=majority
 MONGODB_DB=freightbd
@@ -33,17 +35,7 @@ En Vercel selecciona **Production**, **Preview** y **Development** para las
 variables. No es necesario agregar `VITE_API_URL` en producción: el proyecto
 usa `/api` en el mismo dominio.
 
-## 3. Migrar datos existentes
-
-Si existe una instalación SQLite anterior, ejecuta localmente una sola vez:
-
-```bash
-npm run migrate --prefix server
-```
-
-La migración conserva IDs y relaciones y puede repetirse sin duplicar registros.
-
-## 4. Subir el proyecto
+## 3. Subir el proyecto
 
 Desde la raíz:
 
@@ -56,7 +48,7 @@ git push origin main
 
 La rama `main` es la rama que Vercel despliega. No subas `server/.env`.
 
-## 5. Crear el proyecto en Vercel
+## 4. Crear el proyecto en Vercel
 
 1. Entra a https://vercel.com/new.
 2. Importa `Rappu10/freightbd-dashboard`.
@@ -68,7 +60,7 @@ La rama `main` es la rama que Vercel despliega. No subas `server/.env`.
 La configuración incluye `api/index.js`, que publica Express como función
 serverless, y dirige las rutas `/api/*` al backend.
 
-## 6. Verificar el despliegue
+## 5. Verificar el despliegue
 
 Abre:
 
@@ -86,13 +78,13 @@ El segundo endpoint debe responder:
 Después inicia sesión, confirma que aparecen los clientes migrados y crea un
 cliente y un flete de prueba.
 
-## 7. HTTPS y dominio
+## 6. HTTPS y dominio
 
 Vercel entrega HTTPS automáticamente. Para usar un dominio propio, abre
 **Project Settings > Domains**, agrega el dominio y configura los registros DNS
 que Vercel indique.
 
-## 8. Redeploy y solución de problemas
+## 7. Redeploy y solución de problemas
 
 - Después de cambiar variables, ejecuta **Redeploy** en Vercel.
 - Si la API devuelve `500`, revisa `MONGODB_URI`, `MONGODB_DB` y el acceso de

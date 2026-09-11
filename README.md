@@ -73,17 +73,6 @@ npm run build
 La prueba automatizada verifica la generación y validación de hashes bcrypt.
 GitHub Actions ejecuta las pruebas y el build en cada push y Pull Request.
 
-## Migrar datos antiguos
-
-Si existe una base SQLite de una instalación anterior, configura `MONGODB_URI`
-en `server/.env` y ejecuta una sola vez:
-
-```bash
-npm run migrate --prefix server
-```
-
-La migración conserva IDs, clientes, fletes y relaciones. Es idempotente.
-
 ## Docker
 
 Docker requiere que MongoDB Atlas esté configurado previamente:

@@ -5,3 +5,4 @@ dist/
 .DS_Store
 server/*.sqlite
 server/*.sqlite-*
+server/password-store.json

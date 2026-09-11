@@ -1,7 +1,5 @@
 require('dotenv').config();
 
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
 const express = require('express');
 const cors = require('cors');
@@ -25,33 +23,7 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_BLOCK_MS = 60 * 60 * 1000;
-const PASSWORD_STORE_PATH = process.env.PASSWORD_STORE_PATH || path.join(__dirname, 'password-store.json');
 const loginAttemptStore = new Map();
-
-function readPasswordStore() {
-  try {
-    const raw = fs.readFileSync(PASSWORD_STORE_PATH, 'utf8');
-    return JSON.parse(raw);
-  } catch {
-    const seed = {
-      appPasswordHash: process.env.APP_PASSWORD_HASH || '',
-      adminUsername: process.env.ADMIN_USERNAME || 'admin',
-      adminPasswordHash: process.env.ADMIN_PASSWORD_HASH || bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin123!', 12),
-      bypassTokens: []
-    };
-    fs.writeFileSync(PASSWORD_STORE_PATH, JSON.stringify(seed, null, 2));
-    return seed;
-  }
-}
-
-function persistPasswordStore() {
-  fs.writeFileSync(PASSWORD_STORE_PATH, JSON.stringify({
-    appPasswordHash: APP_PASSWORD_HASH,
-    adminUsername: ADMIN_USERNAME,
-    adminPasswordHash: ADMIN_PASSWORD_HASH,
-    bypassTokens: bypassTokens.filter((token) => token.expiresAt > Date.now())
-  }, null, 2));
-}
 
 function hashToken(token) {
   return crypto.createHash('sha256').update(String(token)).digest('hex');
@@ -68,7 +40,6 @@ function consumeBypassToken(token) {
   const indice = findValidBypassTokenIndex(token);
   if (indice === -1) return false;
   bypassTokens.splice(indice, 1);
-  persistPasswordStore();
   return true;
 }
 
@@ -106,11 +77,10 @@ function marcarIntentoFallido(ip) {
   return actual;
 }
 
-const passwordStore = readPasswordStore();
-let APP_PASSWORD_HASH = passwordStore.appPasswordHash;
-let ADMIN_USERNAME = passwordStore.adminUsername || 'admin';
-let ADMIN_PASSWORD_HASH = passwordStore.adminPasswordHash || bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin123!', 12);
-let bypassTokens = Array.isArray(passwordStore.bypassTokens) ? passwordStore.bypassTokens : [];
+let APP_PASSWORD_HASH = process.env.APP_PASSWORD_HASH || '';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
+let ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH || '';
+let bypassTokens = [];
 
 // ---------------------------------------------------------------------------
 // Configuración y secretos: define estas variables en Vercel o en server/.env.
@@ -123,9 +93,9 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || process.env.ALLOWED_ORIG
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-if (!APP_PASSWORD_HASH || !JWT_SECRET) {
+if (!APP_PASSWORD_HASH || !ADMIN_PASSWORD_HASH || !JWT_SECRET) {
   console.error(
-    '❌ Faltan variables de entorno obligatorias: APP_PASSWORD_HASH y/o JWT_SECRET.\n' +
+    'Faltan variables de entorno obligatorias: APP_PASSWORD_HASH, ADMIN_PASSWORD_HASH y/o JWT_SECRET.\n' +
     '   Genera el hash con: node generate-hash.js "tu-password"\n' +
     '   Genera un secreto con: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
   );
@@ -313,7 +283,6 @@ app.post(
     const token = crypto.randomBytes(24).toString('hex');
     const expiresAt = Date.now() + LOGIN_BLOCK_MS;
     bypassTokens.push({ tokenHash: hashToken(token), expiresAt });
-    persistPasswordStore();
     res.json({ token, expiresIn: Math.ceil((expiresAt - Date.now()) / 1000) });
   }
 );
@@ -330,7 +299,6 @@ app.post(
 
     const { newPassword } = req.body;
     APP_PASSWORD_HASH = bcrypt.hashSync(newPassword, 12);
-    persistPasswordStore();
     loginAttemptStore.clear();
     res.json({ message: 'Contraseña del dashboard actualizada correctamente.' });
   }
@@ -473,7 +441,6 @@ app.use((req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error('Error no controlado:', err);
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 

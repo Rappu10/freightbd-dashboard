@@ -6,7 +6,6 @@
   "scripts": {
     "start": "node index.js",
     "hash": "node generate-hash.js",
-    "migrate": "node migrate-sqlite-to-mongo.js",
     "test": "node --test"
   },
   "dependencies": {
@@ -19,8 +18,5 @@
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongodb": "^6.21.0"
-  },
-  "devDependencies": {
-    "better-sqlite3": "^11.10.0"
   }
 }
