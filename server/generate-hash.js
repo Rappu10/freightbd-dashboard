@@ -1,7 +1,7 @@
 // Genera el hash bcrypt de tu contraseña de acceso al dashboard.
 // Uso:  node generate-hash.js "tu-contraseña-aquí"
 // Copia el resultado y pégalo como APP_PASSWORD_HASH en las variables de
-// entorno de Render (o en tu .env local). Nunca guardes la contraseña en
+// variables de entorno de Vercel (o en tu .env local). Nunca guardes la contraseña en
 // texto plano en ningún archivo ni variable de entorno.
 
 const bcrypt = require('bcryptjs');

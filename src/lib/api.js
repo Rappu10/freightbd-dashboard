@@ -1,6 +1,5 @@
 // En desarrollo usa localhost:4000. En producción, define VITE_API_URL en
-// Vercel (Settings > Environment Variables) apuntando a tu backend de Render,
-// ej. https://freightbd-server.onrender.com/api
+// En Vercel usa la función serverless del mismo proyecto mediante /api.
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
 
 export class SesionExpiradaError extends Error {}

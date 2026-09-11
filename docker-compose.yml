@@ -6,8 +6,8 @@ services:
       APP_PASSWORD_HASH: ${APP_PASSWORD_HASH}
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
-    volumes:
-      - freightbd_data:/app/storage
+      MONGODB_URI: ${MONGODB_URI}
+      MONGODB_DB: ${MONGODB_DB:-freightbd}
     expose:
       - "4000"
     restart: unless-stopped
@@ -23,5 +23,3 @@ services:
       - "${FRONTEND_PORT:-8080}:80"
     restart: unless-stopped
 
-volumes:
-  freightbd_data:

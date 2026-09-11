@@ -5,7 +5,7 @@ El presente proyecto (`freightbd-dashboard`) es una aplicación web integral fun
 
 ## Arquitectura
 * **Diagrama de arquitectura:** incluido abajo en Mermaid; puede exportarse como imagen para la entrega.
-* **Justificación de la arquitectura:** Aplicación dividida en Frontend (React/Vite) y Backend (Node.js/Express) con base de datos SQLite. Se utilizan patrones como MVC/API REST para mantener la separación de responsabilidades, asegurando un sistema escalable y mantenible.
+* **Justificación de la arquitectura:** Aplicación dividida en Frontend (React/Vite), Backend (Node.js/Express) y MongoDB Atlas. Se utiliza una API REST y una capa de persistencia separada para mantener las responsabilidades claras y permitir despliegues escalables.
 
 ## Desarrollo
 * **Frontend + Backend + Base de Datos:** Stack completo implementado.
@@ -27,7 +27,7 @@ El presente proyecto (`freightbd-dashboard`) es una aplicación web integral fun
 
 ## Docker
 * **Dockerfile:** `Dockerfile` funcional tanto para el frontend como para el backend.
-* **Docker Compose:** Archivo `docker-compose.yml` configurado para levantar toda la aplicación (Frontend, Backend, Base de Datos y Nginx) con un solo comando.
+* **Docker Compose:** Archivo `docker-compose.yml` configurado para levantar frontend, backend y Nginx con un solo comando; MongoDB Atlas funciona como base de datos administrada externa.
 * **Portabilidad:** El proyecto puede ser ejecutado en cualquier PC con Docker instalado sin necesidad de configurar componentes manualmente.
 
 ## Pruebas
@@ -37,8 +37,8 @@ El presente proyecto (`freightbd-dashboard`) es una aplicación web integral fun
 
 ## DevOps / Despliegue
 * **CI/CD:** Pipeline básico implementado con GitHub Actions; tests y build se ejecutan automáticamente al hacer *push* o abrir un Pull Request.
-* **Despliegue:** Aplicación desplegada en la nube a través de [Vercel / Render / AWS / etc.]. 
-  * **Enlace de producción:** pendiente de completar en `EVIDENCIAS.md` después del despliegue en Vercel/Render.
+* **Despliegue:** Frontend y API desplegados juntos como aplicación Vercel; MongoDB Atlas funciona como base de datos administrada.
+  * **Enlace de producción:** pendiente de completar en `EVIDENCIAS.md` después del despliegue.
 
 ## Documentación
 * **Manual de instalación:** `README.md`.
@@ -53,7 +53,7 @@ flowchart LR
   U[Usuario] --> V[Vercel o Nginx]
   V --> F[Frontend React + Vite]
   F -->|REST /api| B[Backend Node.js + Express]
-  B --> S[(SQLite)]
+  B --> S[(MongoDB Atlas)]
   B --> E[Servicios externos]
   B --> H[Helmet + CORS + Rate limit]
 ```

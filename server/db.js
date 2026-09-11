@@ -1,36 +1,38 @@
-const path = require('path');
 const crypto = require('crypto');
-const Database = require('better-sqlite3');
+const { MongoClient } = require('mongodb');
 
-const DB_FILE = process.env.DB_FILE
-  ? path.resolve(__dirname, process.env.DB_FILE)
-  : path.join(__dirname, 'data.sqlite');
-const db = new Database(DB_FILE);
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB = process.env.MONGODB_DB || 'freightbd';
+let client;
+let database;
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+async function connectDB() {
+  if (database) return database;
+  if (!MONGODB_URI) {
+    throw new Error('Falta la variable de entorno MONGODB_URI. Configúrala con la conexión de MongoDB Atlas.');
+  }
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS clientes (
-    id TEXT PRIMARY KEY,
-    nombre TEXT NOT NULL,
-    empresa TEXT NOT NULL DEFAULT 'Particular',
-    creado_en TEXT NOT NULL
-  );
+  client = new MongoClient(MONGODB_URI, { serverSelectionTimeoutMS: 5000 });
+  await client.connect();
+  database = client.db(MONGODB_DB);
+  await database.collection('clientes').createIndex({ creado_en: -1 });
+  await database.collection('fletes').createIndex({ cliente_id: 1, fecha: -1, creado_en: -1 });
+  return database;
+}
 
-  CREATE TABLE IF NOT EXISTS fletes (
-    id TEXT PRIMARY KEY,
-    cliente_id TEXT NOT NULL,
-    tipo_material TEXT NOT NULL,
-    cantidad REAL NOT NULL,
-    precio REAL NOT NULL,
-    fecha TEXT NOT NULL,
-    creado_en TEXT NOT NULL,
-    FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
-  );
+async function closeDB() {
+  if (client) await client.close();
+  client = undefined;
+  database = undefined;
+}
 
-  CREATE INDEX IF NOT EXISTS idx_fletes_cliente_id ON fletes(cliente_id);
-`);
+function getCollections() {
+  if (!database) throw new Error('La base de datos no está conectada.');
+  return {
+    clientes: database.collection('clientes'),
+    fletes: database.collection('fletes')
+  };
+}
 
 const mapFlete = (row) => ({
   id: row.id,
@@ -49,33 +51,29 @@ const mapCliente = (row, fletes = []) => ({
   creadoEn: row.creado_en
 });
 
-function obtenerClientes() {
-  const clientes = db.prepare('SELECT * FROM clientes ORDER BY creado_en DESC').all();
-  const fletesPorCliente = db
-    .prepare('SELECT * FROM fletes ORDER BY fecha DESC, creado_en DESC')
-    .all()
-    .reduce((acc, flete) => {
-      if (!acc[flete.cliente_id]) acc[flete.cliente_id] = [];
-      acc[flete.cliente_id].push(mapFlete(flete));
-      return acc;
-    }, {});
+async function obtenerClientes() {
+  const { clientes, fletes } = getCollections();
+  const clientesRows = await clientes.find({}).sort({ creado_en: -1 }).toArray();
+  const fletesRows = await fletes.find({}).sort({ fecha: -1, creado_en: -1 }).toArray();
+  const fletesPorCliente = fletesRows.reduce((acc, flete) => {
+    if (!acc[flete.cliente_id]) acc[flete.cliente_id] = [];
+    acc[flete.cliente_id].push(mapFlete(flete));
+    return acc;
+  }, {});
 
-  return clientes.map((cliente) => mapCliente(cliente, fletesPorCliente[cliente.id] || []));
+  return clientesRows.map((cliente) => mapCliente(cliente, fletesPorCliente[cliente.id] || []));
 }
 
-function obtenerClientePorId(id) {
-  const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(id);
+async function obtenerClientePorId(id) {
+  const { clientes, fletes } = getCollections();
+  const cliente = await clientes.findOne({ id });
   if (!cliente) return null;
 
-  const fletes = db
-    .prepare('SELECT * FROM fletes WHERE cliente_id = ? ORDER BY fecha DESC, creado_en DESC')
-    .all(id)
-    .map(mapFlete);
-
-  return mapCliente(cliente, fletes);
+  const registros = await fletes.find({ cliente_id: id }).sort({ fecha: -1, creado_en: -1 }).toArray();
+  return mapCliente(cliente, registros.map(mapFlete));
 }
 
-function crearCliente({ nombre, empresa }) {
+async function crearCliente({ nombre, empresa }) {
   const ahora = new Date().toISOString();
   const cliente = {
     id: crypto.randomUUID(),
@@ -84,31 +82,28 @@ function crearCliente({ nombre, empresa }) {
     creado_en: ahora
   };
 
-  db.prepare(
-    'INSERT INTO clientes (id, nombre, empresa, creado_en) VALUES (@id, @nombre, @empresa, @creado_en)'
-  ).run(cliente);
-
+  const { clientes } = getCollections();
+  await clientes.insertOne(cliente);
   return mapCliente(cliente, []);
 }
 
-function eliminarCliente(id) {
-  const result = db.prepare('DELETE FROM clientes WHERE id = ?').run(id);
-  return result.changes > 0;
+async function eliminarCliente(id) {
+  const { clientes, fletes } = getCollections();
+  const result = await clientes.deleteOne({ id });
+  if (result.deletedCount > 0) await fletes.deleteMany({ cliente_id: id });
+  return result.deletedCount > 0;
 }
 
-function crearFlete(clienteId, { tipoMaterial, unidadMedida, cantidad, precio, fecha }) {
-  const cliente = db.prepare('SELECT id FROM clientes WHERE id = ?').get(clienteId);
-  if (!cliente) return null;
-
+async function crearFlete(clienteId, { tipoMaterial, unidadMedida, cantidad, precio, fecha }) {
   const ahora = new Date().toISOString();
   const fechaNormalizada = fecha
     ? new Date(fecha).toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
+  const { clientes, fletes } = getCollections();
+  const cliente = await clientes.findOne({ id: clienteId }, { projection: { _id: 1 } });
+  if (!cliente) return null;
 
-  db.prepare(`
-    INSERT INTO fletes (id, cliente_id, tipo_material, cantidad, precio, fecha, creado_en)
-    VALUES (@id, @cliente_id, @tipo_material, @cantidad, @precio, @fecha, @creado_en)
-  `).run({
+  await fletes.insertOne({
     id: crypto.randomUUID(),
     cliente_id: clienteId,
     tipo_material: `${tipoMaterial} (${unidadMedida})`,
@@ -121,20 +116,19 @@ function crearFlete(clienteId, { tipoMaterial, unidadMedida, cantidad, precio, f
   return obtenerClientePorId(clienteId);
 }
 
-function eliminarFlete(clienteId, fleteId) {
-  const cliente = db.prepare('SELECT id FROM clientes WHERE id = ?').get(clienteId);
+async function eliminarFlete(clienteId, fleteId) {
+  const { clientes, fletes } = getCollections();
+  const cliente = await clientes.findOne({ id: clienteId }, { projection: { _id: 1 } });
   if (!cliente) return { estado: 'cliente-no-encontrado' };
 
-  const result = db
-    .prepare('DELETE FROM fletes WHERE id = ? AND cliente_id = ?')
-    .run(fleteId, clienteId);
-
-  if (result.changes === 0) return { estado: 'flete-no-encontrado' };
-  return { estado: 'ok', cliente: obtenerClientePorId(clienteId) };
+  const result = await fletes.deleteOne({ id: fleteId, cliente_id: clienteId });
+  if (result.deletedCount === 0) return { estado: 'flete-no-encontrado' };
+  return { estado: 'ok', cliente: await obtenerClientePorId(clienteId) };
 }
 
 module.exports = {
-  DB_FILE,
+  connectDB,
+  closeDB,
   obtenerClientes,
   crearCliente,
   eliminarCliente,

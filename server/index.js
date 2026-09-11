@@ -11,7 +11,8 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { body, param, validationResult } = require('express-validator');
 const {
-  DB_FILE,
+  connectDB,
+  closeDB,
   obtenerClientes,
   crearCliente,
   eliminarCliente,
@@ -112,7 +113,7 @@ let ADMIN_PASSWORD_HASH = passwordStore.adminPasswordHash || bcrypt.hashSync(pro
 let bypassTokens = Array.isArray(passwordStore.bypassTokens) ? passwordStore.bypassTokens : [];
 
 // ---------------------------------------------------------------------------
-// Config / secretos. En Render: Settings > Environment Variables.
+// Configuración y secretos: define estas variables en Vercel o en server/.env.
 // APP_PASSWORD_HASH se genera con `node generate-hash.js "tu-password"`.
 // JWT_SECRET puede ser cualquier cadena larga aleatoria (ej. openssl rand -hex 32).
 // ---------------------------------------------------------------------------
@@ -134,7 +135,7 @@ if (!APP_PASSWORD_HASH || !JWT_SECRET) {
 // ---------------------------------------------------------------------------
 // Seguridad de transporte / cabeceras
 // ---------------------------------------------------------------------------
-app.set('trust proxy', 1); // Render está detrás de un proxy; necesario para rate-limit e IPs correctas
+app.set('trust proxy', 1); // Vercel está detrás de un proxy; necesario para rate-limit e IPs correctas
 app.use(helmet());
 app.use(cors({
   origin(origin, callback) {
@@ -145,6 +146,15 @@ app.use(cors({
   }
 }));
 app.use(express.json({ limit: '15kb' })); // payloads pequeños: este endpoint nunca necesita más
+
+app.use('/api', async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Rate limiting: general + uno estricto para el login (evita fuerza bruta)
@@ -350,8 +360,8 @@ const manejarErroresValidacion = (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 // [GET] Obtener clientes
-app.get('/api/clientes', requireAuth, (req, res) => {
-  res.json(obtenerClientes());
+app.get('/api/clientes', requireAuth, async (req, res) => {
+  res.json(await obtenerClientes());
 });
 
 app.get('/api/weather', requireAuth, async (req, res) => {
@@ -378,10 +388,10 @@ app.post(
     .isLength({ max: 150 }).withMessage('La empresa no puede superar 150 caracteres')
     .customSanitizer((v) => (v ? v.replace(/[<>]/g, '') : v)),
   manejarErroresValidacion,
-  (req, res) => {
+  async (req, res) => {
     const { nombre, empresa } = req.body;
 
-    res.status(201).json(crearCliente({ nombre, empresa }));
+    res.status(201).json(await crearCliente({ nombre, empresa }));
   }
 );
 
@@ -391,9 +401,9 @@ app.delete(
   requireAuth,
   validarId('id'),
   manejarErroresValidacion,
-  (req, res) => {
+  async (req, res) => {
     const idBuscar = String(req.params.id);
-    const eliminado = eliminarCliente(idBuscar);
+    const eliminado = await eliminarCliente(idBuscar);
     if (!eliminado) return res.status(404).json({ error: 'Cliente no encontrado' });
     res.json({ message: 'Cliente eliminado correctamente' });
   }
@@ -415,11 +425,11 @@ app.post(
     .isISO8601().withMessage('Fecha inválida')
     .toDate(),
   manejarErroresValidacion,
-  (req, res) => {
+  async (req, res) => {
     const { id } = req.params;
     const { tipoMaterial, unidadMedida, cantidad, precio } = req.body;
 
-    const cliente = crearFlete(id, {
+    const cliente = await crearFlete(id, {
       tipoMaterial,
       unidadMedida,
       cantidad,
@@ -439,11 +449,11 @@ app.delete(
   validarId('clienteId'),
   validarId('fleteId'),
   manejarErroresValidacion,
-  (req, res) => {
+  async (req, res) => {
     const idCliente = String(req.params.clienteId);
     const idFlete = String(req.params.fleteId);
 
-    const resultado = eliminarFlete(idCliente, idFlete);
+    const resultado = await eliminarFlete(idCliente, idFlete);
     if (resultado.estado === 'cliente-no-encontrado') {
       return res.status(404).json({ error: 'Cliente no encontrado' });
     }
@@ -467,7 +477,28 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Error interno del servidor' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor FreightBD corriendo en el puerto ${PORT}`);
-  console.log(`📦 Base de datos local: ${DB_FILE}`);
-});
+async function startServer() {
+  await connectDB();
+  const server = app.listen(PORT, () => {
+    console.log(`Servidor FreightBD corriendo en el puerto ${PORT}`);
+    console.log(`Base de datos MongoDB: ${process.env.MONGODB_DB || 'freightbd'}`);
+  });
+
+  const shutdown = async () => {
+    server.close(async () => {
+      await closeDB();
+      process.exit(0);
+    });
+  };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error(`No se pudo iniciar el servidor: ${error.message}`);
+    process.exit(1);
+  });
+}
+
+module.exports = app;

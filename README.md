@@ -2,8 +2,7 @@
 
 Panel para llevar el control de clientes y sus fletes de material (arena,
 grava, rajuela, ladrillo, escombro). Frontend en React + Vite + Tailwind,
-backend en Express con autenticación por contraseña y base de datos local
-SQLite.
+backend en Express con autenticación por contraseña y MongoDB Atlas.
 
 ## Desarrollo local
 
@@ -16,7 +15,8 @@ node generate-hash.js "tu-password-de-al-menos-8-caracteres"
 ```
 
 Copia el `APP_PASSWORD_HASH` que te imprime, crea un archivo `server/.env`
-(a partir de `server/.env.example`) y pégalo ahí junto con un `JWT_SECRET`:
+(a partir de `server/.env.example`) y agrega también `JWT_SECRET`,
+`MONGODB_URI` y `MONGODB_DB`:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -28,8 +28,17 @@ Luego arranca el servidor:
 npm start
 ```
 
-El backend escucha en `http://localhost:4000` y usa `server/data.sqlite`
-como base de datos local.
+El backend escucha en `http://localhost:4000` y guarda los datos en MongoDB
+mediante `MONGODB_URI`.
+
+Si ya tienes datos en el SQLite anterior, configura `MONGODB_URI` y ejecuta una
+sola vez desde la raíz:
+
+```bash
+npm run migrate --prefix server
+```
+
+El comando conserva los IDs y relaciones de clientes y fletes.
 
 **2. Frontend**
 
@@ -74,11 +83,12 @@ node generate-hash.js "tu-password-de-al-menos-8-caracteres"
 cd ..
 export APP_PASSWORD_HASH="el-hash-generado"
 export JWT_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
+export MONGODB_URI="mongodb+srv://usuario:password@cluster.mongodb.net/?retryWrites=true&w=majority"
+export MONGODB_DB="freightbd"
 docker compose up --build -d
 ```
 
-Abre `http://localhost:8080`. La base SQLite y el almacén de credenciales
-persisten en el volumen Docker `freightbd_data`. Para detener los servicios:
+Abre `http://localhost:8080`. Los datos se guardan en MongoDB Atlas. Para detener los servicios:
 
 ```bash
 docker compose down
@@ -98,15 +108,14 @@ docker compose down
     referencia de Ciudad de México; si el servicio falla, el resto de la
     aplicación continúa disponible.
 
-## Persistencia de datos local
+## Persistencia de datos
 
-El backend guarda todo en `server/data.sqlite`. En local los datos sobreviven
-mientras no borres ese archivo. En el plan free de Render el disco es efímero:
-cada redeploy o reinicio puede borrar la base si no configuras disco
-persistente. Si esto va a producción con clientes reales, considera un disco
-persistente de Render o migrar a una base de datos administrada.
+El backend guarda clientes y fletes en MongoDB Atlas. Configura `MONGODB_URI`
+y `MONGODB_DB` en `server/.env` o en las variables del servicio de despliegue.
+La base ya no depende del disco local ni del almacenamiento efímero de una
+función serverless.
 
 ## Despliegue
 
-Ver `guia-despliegue-freightbd.md` para el paso a paso completo (Render +
-Vercel + dominio propio).
+Ver `guia-despliegue-freightbd.md` para el paso a paso completo de Vercel,
+MongoDB Atlas y dominio propio.

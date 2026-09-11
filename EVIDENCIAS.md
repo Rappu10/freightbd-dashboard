@@ -12,8 +12,8 @@ reales antes de la presentación.
 
 ## Despliegue
 
-- Frontend Vercel: `PENDIENTE: pegar URL real`
-- Backend Render: `PENDIENTE: pegar URL real`
+- Aplicación completa en Vercel: `PENDIENTE: pegar URL real`
+- API Vercel: `PENDIENTE: validar /api/ping en la misma URL`
 - Fecha de validación: `PENDIENTE`
 - Captura pendiente: aplicación funcionando y endpoint `/api/ping` respondiendo.
 
