@@ -1,21 +1,56 @@
-# Evidencias de pruebas y despliegue
+# Evidencias del proyecto
 
-Este archivo es la bitácora que debe completar el equipo con capturas o enlaces
-reales antes de la presentación.
+## Despliegue en producción
 
-## Pruebas
+- Plataforma: Vercel.
+- URL de la aplicación: https://freightbd-dashboard.vercel.app/
+- Endpoint de salud: https://freightbd-dashboard.vercel.app/api/ping
+- Respuesta comprobada: `{"ok":true}`.
+- Base de datos: MongoDB Atlas.
+- Persistencia comprobada durante la migración: 9 clientes y 11 fletes.
 
-- Comando local: `npm test`
-- Build local: `npm run build`
-- Evidencia CI: enlace a la ejecución de GitHub Actions de este repositorio.
-- Captura pendiente: resultado exitoso de tests y build.
+Adjuntar a la entrega una captura de la aplicación funcionando y otra del
+endpoint `/api/ping`.
 
-## Despliegue
+## Pruebas locales
 
-- Aplicación completa en Vercel: `PENDIENTE: pegar URL real`
-- API Vercel: `PENDIENTE: validar /api/ping en la misma URL`
-- Fecha de validación: `PENDIENTE`
-- Captura pendiente: aplicación funcionando y endpoint `/api/ping` respondiendo.
+Comandos ejecutados:
 
-No se deben inventar URLs ni capturas: estos datos dependen de las cuentas del
-equipo y se registran después del despliegue.
+```bash
+npm test
+npm run build
+```
+
+Resultado esperado:
+
+- 2 pruebas exitosas.
+- Build de Vite generado correctamente en `dist/`.
+
+## Integración externa
+
+El backend consulta Open-Meteo en `GET /api/weather`. El dashboard muestra la
+ubicación, temperatura y condición meteorológica cuando el servicio responde.
+Si Open-Meteo no está disponible, la aplicación principal continúa funcionando.
+
+## CI/CD
+
+El workflow `.github/workflows/ci.yml` ejecuta automáticamente:
+
+1. Instalación de dependencias.
+2. Pruebas automatizadas.
+3. Build de producción.
+
+Completar antes de la presentación con el enlace de la ejecución de GitHub
+Actions y una captura del resultado exitoso:
+
+- Workflow CI: `PENDIENTE: pegar enlace de GitHub Actions`.
+
+## Control de versiones
+
+- Repositorio: https://github.com/Rappu10/freightbd-dashboard
+- Rama de producción: `main`.
+- Pull Request del equipo: `PENDIENTE: pegar enlace real`.
+- Evidencia de ramas y revisión: `PENDIENTE: adjuntar captura`.
+
+No se deben inventar enlaces o capturas; esos elementos deben salir de GitHub y
+Vercel después de la ejecución real.

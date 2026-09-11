@@ -1,77 +1,102 @@
-# Guía de despliegue en Vercel
+# Guía de despliegue: Vercel + MongoDB Atlas
 
-La aplicación completa se despliega en Vercel: frontend Vite y backend Express
-como función serverless. MongoDB Atlas conserva los datos.
+La aplicación completa se publica en Vercel: el frontend Vite y la API Express
+se despliegan desde el mismo repositorio. MongoDB Atlas almacena los datos.
 
-## 1. Configura MongoDB Atlas
+## 1. Preparar MongoDB Atlas
 
-1. En MongoDB Atlas crea el proyecto y cluster `freightbd-dashboard`.
+1. Crea o abre el proyecto `freightbd-dashboard` en MongoDB Atlas.
 2. En **Database Access**, crea un usuario de base de datos.
-3. En **Network Access**, permite las conexiones necesarias para Vercel. Para
-   una entrega escolar puedes usar `0.0.0.0/0` con una contraseña segura.
-4. Copia la cadena de conexión y reemplaza usuario y contraseña:
+3. En **Network Access**, agrega las conexiones permitidas. Para una entrega
+   escolar puedes usar `0.0.0.0/0` con una contraseña fuerte.
+4. Copia la cadena de conexión con este formato:
 
 ```text
-mongodb+srv://USUARIO:CONTRASEÑA@freightbd-dashboard.nt5oco3.mongodb.net/?appName=freightbd-dashboard
+mongodb+srv://USUARIO:CONTRASENA@freightbd-dashboard.nt5oco3.mongodb.net/?appName=freightbd-dashboard
 ```
 
-## 2. Prepara el repositorio
+No pegues la cadena en archivos versionados, capturas ni mensajes públicos.
 
-Desde la raíz del proyecto:
+## 2. Preparar variables
 
-```bash
-git add .
-git commit -m "deploy: preparar Vercel con MongoDB"
-git push origin main
-```
+En `server/.env` local o en Vercel configura:
 
-No subas `server/.env`. Está ignorado por Git.
-
-## 3. Importa el proyecto en Vercel
-
-1. Entra a https://vercel.com/new y selecciona el repositorio.
-2. Deja **Root Directory** en la raíz del proyecto.
-3. Vercel detectará Vite. La configuración del archivo `vercel.json` define el
-   build, la función API y la ruta `/api`.
-4. En **Environment Variables**, agrega para Production, Preview y Development:
-
-```text
-APP_PASSWORD_HASH=hash bcrypt de la contraseña del dashboard
-JWT_SECRET=secreto largo y aleatorio
-MONGODB_URI= cadena de conexión de MongoDB Atlas
+```env
+APP_PASSWORD_HASH=hash-bcrypt-del-dashboard
+JWT_SECRET=secreto-largo-y-aleatorio
+MONGODB_URI=mongodb+srv://USUARIO:CONTRASENA@cluster.mongodb.net/?retryWrites=true&w=majority
 MONGODB_DB=freightbd
-ALLOWED_ORIGINS=https://TU-PROYECTO.vercel.app
+ALLOWED_ORIGINS=https://freightbd-dashboard.vercel.app
 ```
 
-No es necesario definir `VITE_API_URL`: Vercel usa `/api` mediante la
-configuración incluida.
+En Vercel selecciona **Production**, **Preview** y **Development** para las
+variables. No es necesario agregar `VITE_API_URL` en producción: el proyecto
+usa `/api` en el mismo dominio.
 
-5. Pulsa **Deploy**.
+## 3. Migrar datos existentes
 
-## 4. Verifica la aplicación
-
-Abre estos endpoints usando el dominio que Vercel asignó:
-
-```text
-https://TU-PROYECTO.vercel.app/api/ping
-https://TU-PROYECTO.vercel.app
-```
-
-`/api/ping` debe responder `{"ok":true}`. Después inicia sesión, consulta los
-clientes migrados y crea un cliente y un flete de prueba.
-
-## 5. Migrar datos SQLite existentes
-
-Si aún no ejecutaste la migración local, configura `MONGODB_URI` en `server/.env`
-y ejecuta una sola vez:
+Si existe una instalación SQLite anterior, ejecuta localmente una sola vez:
 
 ```bash
 npm run migrate --prefix server
 ```
 
-El comando conserva IDs y relaciones, y es idempotente.
+La migración conserva IDs y relaciones y puede repetirse sin duplicar registros.
 
-## 6. Dominio y HTTPS
+## 4. Subir el proyecto
 
-En Vercel abre **Settings > Domains**, agrega el dominio y configura el registro
-DNS que Vercel indique. Vercel proporciona HTTPS automáticamente.
+Desde la raíz:
+
+```bash
+git switch main
+git add .
+git commit -m "docs: actualizar documentación final"
+git push origin main
+```
+
+La rama `main` es la rama que Vercel despliega. No subas `server/.env`.
+
+## 5. Crear el proyecto en Vercel
+
+1. Entra a https://vercel.com/new.
+2. Importa `Rappu10/freightbd-dashboard`.
+3. Deja **Root Directory** en la raíz del proyecto.
+4. Usa el build configurado en `vercel.json`.
+5. Agrega las variables de entorno del paso 2.
+6. Pulsa **Deploy**.
+
+La configuración incluye `api/index.js`, que publica Express como función
+serverless, y dirige las rutas `/api/*` al backend.
+
+## 6. Verificar el despliegue
+
+Abre:
+
+```text
+https://freightbd-dashboard.vercel.app/
+https://freightbd-dashboard.vercel.app/api/ping
+```
+
+El segundo endpoint debe responder:
+
+```json
+{"ok":true}
+```
+
+Después inicia sesión, confirma que aparecen los clientes migrados y crea un
+cliente y un flete de prueba.
+
+## 7. HTTPS y dominio
+
+Vercel entrega HTTPS automáticamente. Para usar un dominio propio, abre
+**Project Settings > Domains**, agrega el dominio y configura los registros DNS
+que Vercel indique.
+
+## 8. Redeploy y solución de problemas
+
+- Después de cambiar variables, ejecuta **Redeploy** en Vercel.
+- Si la API devuelve `500`, revisa `MONGODB_URI`, `MONGODB_DB` y el acceso de
+  red de MongoDB Atlas.
+- Si la API devuelve `404`, confirma que el deployment usa la rama `main` y el
+  commit que contiene `api/index.js` y `vercel.json`.
+- Revisa los **Build Logs** y **Runtime Logs** de Vercel.

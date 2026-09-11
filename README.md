@@ -1,94 +1,102 @@
 # FreightBD Dashboard
 
-Panel para llevar el control de clientes y sus fletes de material (arena,
-grava, rajuela, ladrillo, escombro). Frontend en React + Vite + Tailwind,
-backend en Express con autenticación por contraseña y MongoDB Atlas.
+Aplicación web para administrar clientes y fletes de materiales como arena,
+grava, rajuela, ladrillo y escombro.
 
-## Desarrollo local
+## Tecnologías
 
-**1. Backend**
+- Frontend: React, Vite y Tailwind CSS.
+- Backend: Node.js, Express y API REST.
+- Base de datos: MongoDB Atlas.
+- Despliegue: Vercel, con el frontend y la API en el mismo proyecto.
+- Servicio externo: Open-Meteo para mostrar el clima de referencia.
+
+## Ejecución local
+
+### Requisitos
+
+- Node.js 20 o superior.
+- Una base de datos MongoDB Atlas.
+- Git, si se clona desde GitHub.
+
+### Configurar el backend
 
 ```bash
 cd server
 npm install
-node generate-hash.js "tu-password-de-al-menos-8-caracteres"
+cp .env.example .env
+node generate-hash.js "una-contraseña-de-al-menos-8-caracteres"
 ```
 
-Copia el `APP_PASSWORD_HASH` que te imprime, crea un archivo `server/.env`
-(a partir de `server/.env.example`) y agrega también `JWT_SECRET`,
-`MONGODB_URI` y `MONGODB_DB`:
+Copia el hash que imprime el comando en `APP_PASSWORD_HASH` dentro de
+`server/.env`. Completa también:
 
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```env
+JWT_SECRET=un-secreto-largo-y-aleatorio
+MONGODB_URI=mongodb+srv://USUARIO:CONTRASENA@cluster.mongodb.net/?retryWrites=true&w=majority
+MONGODB_DB=freightbd
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ```
 
-Luego arranca el servidor:
+Nunca subas `server/.env` al repositorio.
+
+### Iniciar la aplicación
+
+En una terminal:
 
 ```bash
+cd server
 npm start
 ```
 
-El backend escucha en `http://localhost:4000` y guarda los datos en MongoDB
-mediante `MONGODB_URI`.
-
-Si ya tienes datos en el SQLite anterior, configura `MONGODB_URI` y ejecuta una
-sola vez desde la raíz:
-
-```bash
-npm run migrate --prefix server
-```
-
-El comando conserva los IDs y relaciones de clientes y fletes.
-
-**2. Frontend**
-
-En otra terminal, desde la raíz del proyecto:
+En otra terminal, desde la raíz:
 
 ```bash
 npm install
 npm run dev
 ```
 
-El frontend usa `VITE_API_URL=http://localhost:4000/api` en `.env`, así que
-se comunica con el backend local. Abre `http://localhost:5173`, inicia sesión
-con la contraseña que definiste y ya puedes agregar clientes y fletes.
-
-También puedes levantar ambos procesos desde la raíz:
+Abre `http://localhost:5173`. La API local utiliza `http://localhost:4000/api`.
+También puedes iniciar ambos procesos con:
 
 ```bash
 npm run start:all
 ```
 
-## Pruebas y documentación de entrega
-
-Ejecuta las pruebas automatizadas y el build de producción:
+## Pruebas y build
 
 ```bash
 npm test
 npm run build
 ```
 
-- Requisitos y diagrama: `REQUERIMIENTOS.md`
-- Manual breve de usuario: `MANUAL-USUARIO.md`
-- Evidencias de pruebas y despliegue: `EVIDENCIAS.md`
-- CI en GitHub Actions: `.github/workflows/ci.yml`
+La prueba automatizada verifica la generación y validación de hashes bcrypt.
+GitHub Actions ejecuta las pruebas y el build en cada push y Pull Request.
+
+## Migrar datos antiguos
+
+Si existe una base SQLite de una instalación anterior, configura `MONGODB_URI`
+en `server/.env` y ejecuta una sola vez:
+
+```bash
+npm run migrate --prefix server
+```
+
+La migración conserva IDs, clientes, fletes y relaciones. Es idempotente.
 
 ## Docker
 
-Genera las variables obligatorias y levanta la aplicación completa:
+Docker requiere que MongoDB Atlas esté configurado previamente:
 
 ```bash
-cd server
-node generate-hash.js "tu-password-de-al-menos-8-caracteres"
-cd ..
-export APP_PASSWORD_HASH="el-hash-generado"
-export JWT_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")"
-export MONGODB_URI="mongodb+srv://usuario:password@cluster.mongodb.net/?retryWrites=true&w=majority"
+export APP_PASSWORD_HASH="hash-bcrypt"
+export JWT_SECRET="secreto-largo"
+export MONGODB_URI="mongodb+srv://USUARIO:CONTRASENA@cluster.mongodb.net/?retryWrites=true&w=majority"
 export MONGODB_DB="freightbd"
 docker compose up --build -d
 ```
 
-Abre `http://localhost:8080`. Los datos se guardan en MongoDB Atlas. Para detener los servicios:
+Abre `http://localhost:8080`. Para detener los servicios:
 
 ```bash
 docker compose down
@@ -96,26 +104,16 @@ docker compose down
 
 ## Seguridad
 
-- Acceso protegido por contraseña (hash bcrypt) + tokens JWT de 12 horas.
-- Límite de intentos de login (8 cada 15 min) para frenar fuerza bruta.
-- Límite general de peticiones por IP.
-- Validación estricta en el backend de cada campo (nombre, empresa, material,
-  unidad, cantidad, precio, fecha) — nunca se confía en lo que mande el
-  frontend, aunque el frontend también valide para dar feedback inmediato.
-- Cabeceras de seguridad HTTP vía `helmet`.
-- CORS restringido a orígenes configurables (`ALLOWED_ORIGINS`).
-- Consulta Open-Meteo mediante `GET /api/weather` para mostrar el clima de
-    referencia de Ciudad de México; si el servicio falla, el resto de la
-    aplicación continúa disponible.
+- Contraseñas protegidas con bcrypt.
+- Sesiones JWT con duración de 12 horas.
+- Validación de datos en frontend y backend.
+- Helmet, CORS y rate limiting.
+- Variables sensibles fuera del repositorio.
+- HTTPS proporcionado por Vercel en producción.
 
-## Persistencia de datos
+## Documentación
 
-El backend guarda clientes y fletes en MongoDB Atlas. Configura `MONGODB_URI`
-y `MONGODB_DB` en `server/.env` o en las variables del servicio de despliegue.
-La base ya no depende del disco local ni del almacenamiento efímero de una
-función serverless.
-
-## Despliegue
-
-Ver `guia-despliegue-freightbd.md` para el paso a paso completo de Vercel,
-MongoDB Atlas y dominio propio.
+- Requisitos y arquitectura: [REQUERIMIENTOS.md](REQUERIMIENTOS.md)
+- Despliegue: [guia-despliegue-freightbd.md](guia-despliegue-freightbd.md)
+- Manual de usuario: [MANUAL-USUARIO.md](MANUAL-USUARIO.md)
+- Evidencias: [EVIDENCIAS.md](EVIDENCIAS.md)

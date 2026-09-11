@@ -1,66 +1,88 @@
-# Requerimientos Proyecto Desarrollo Web Integral
-**ING 9° TI SEPT-DIC 2026**
+# Requerimientos del proyecto
 
-El presente proyecto (`freightbd-dashboard`) es una aplicación web integral funcional, desarrollada en equipos de 3 - 4 personas, que cumple con los siguientes lineamientos de la materia:
+**Proyecto Desarrollo Web Integral · ING 9° TI · Septiembre-Diciembre 2026**
 
-## Arquitectura
-* **Diagrama de arquitectura:** incluido abajo en Mermaid; puede exportarse como imagen para la entrega.
-* **Justificación de la arquitectura:** Aplicación dividida en Frontend (React/Vite), Backend (Node.js/Express) y MongoDB Atlas. Se utiliza una API REST y una capa de persistencia separada para mantener las responsabilidades claras y permitir despliegues escalables.
+## 1. Arquitectura
 
-## Desarrollo
-* **Frontend + Backend + Base de Datos:** Stack completo implementado.
-* **API REST:** Desarrollo de una API REST propia en el directorio `/server`.
-* **Integraciones:** Open-Meteo se consulta desde `server/weather.js` mediante `GET /api/weather` y muestra el clima de referencia en el dashboard para apoyar la planeación de fletes. Google Fonts también se usa como servicio externo de tipografías.
+La aplicación separa la interfaz, la API y la persistencia:
 
-## Control de Versiones
-* **Repositorio:** Alojado en GitHub/GitLab.
-* **Historial:** Historial real de commits demostrando el progreso y colaboración del equipo.
-* **Flujo de trabajo:** Uso activo de ramas (branches) y Pull Requests para la integración de código.
-* **Instrucciones de ejecución:** Detalladas en la sección correspondiente de este README.
+- React/Vite entrega la interfaz web.
+- Express implementa la API REST en funciones serverless de Vercel.
+- MongoDB Atlas almacena clientes y fletes.
+- Open-Meteo aporta el clima de referencia para apoyar la planeación.
 
-## Seguridad
-* **Autenticación/Autorización:** Implementación de control de acceso para usuarios.
-* **Contraseñas:** Hasheadas y protegidas (ej. usando bcrypt).
-* **Validación de datos:** Prevención de inyecciones y validación de inputs tanto en el frontend como en el backend.
-* **Variables de entorno:** Manejo de datos sensibles mediante archivos `.env` (no incluidos en el repositorio, ver `.env.example`).
-* **HTTPS:** [Explicar cómo se implementaría con el proxy inverso de Nginx o certificados de Let's Encrypt en producción].
-
-## Docker
-* **Dockerfile:** `Dockerfile` funcional tanto para el frontend como para el backend.
-* **Docker Compose:** Archivo `docker-compose.yml` configurado para levantar frontend, backend y Nginx con un solo comando; MongoDB Atlas funciona como base de datos administrada externa.
-* **Portabilidad:** El proyecto puede ser ejecutado en cualquier PC con Docker instalado sin necesidad de configurar componentes manualmente.
-
-## Pruebas
-* **Tipo de pruebas:** Prueba automatizada de generación y verificación de hashes en `server/test/generate-hash.test.js`.
-* **Automatización:** `npm test` y `npm run build` se ejecutan en `.github/workflows/ci.yml` para cada push y Pull Request.
-* **Evidencia:** ver `EVIDENCIAS.md` y completar el enlace de la ejecución de GitHub Actions.
-
-## DevOps / Despliegue
-* **CI/CD:** Pipeline básico implementado con GitHub Actions; tests y build se ejecutan automáticamente al hacer *push* o abrir un Pull Request.
-* **Despliegue:** Frontend y API desplegados juntos como aplicación Vercel; MongoDB Atlas funciona como base de datos administrada.
-  * **Enlace de producción:** pendiente de completar en `EVIDENCIAS.md` después del despliegue.
-
-## Documentación
-* **Manual de instalación:** `README.md`.
-* **Manual de usuario breve:** `MANUAL-USUARIO.md`.
-* **Diagrama de arquitectura:** incluido abajo.
-* **Evidencias:** `EVIDENCIAS.md`.
-
-## Diagrama de arquitectura
+Esta separación permite cambiar la interfaz, la API o la base de datos sin
+mezclar responsabilidades. La API conserva el contrato REST y la capa de datos
+concentra las operaciones de MongoDB.
 
 ```mermaid
 flowchart LR
-  U[Usuario] --> V[Vercel o Nginx]
-  V --> F[Frontend React + Vite]
-  F -->|REST /api| B[Backend Node.js + Express]
-  B --> S[(MongoDB Atlas)]
-  B --> E[Servicios externos]
-  B --> H[Helmet + CORS + Rate limit]
+  U[Usuario] --> V[Vercel HTTPS]
+  V --> F[React + Vite]
+  F -->|REST /api| A[Express serverless]
+  A --> D[(MongoDB Atlas)]
+  A --> W[Open-Meteo]
+  A --> S[Helmet + CORS + Rate limit]
 ```
 
-## Estado de requisitos externos
+## 2. Desarrollo
 
-El repositorio ya conserva historial real y remoto `origin/main`, pero la
-entrega debe demostrar al menos una rama de trabajo y un Pull Request creados
-por el equipo. El despliegue y sus URLs también deben registrarse en
-`EVIDENCIAS.md`; no pueden generarse desde el código local.
+- Frontend: React, Vite y Tailwind CSS.
+- Backend: Node.js y Express.
+- Base de datos: MongoDB Atlas.
+- API propia: autenticación, clientes, fletes, administración y clima.
+- Servicio externo: Open-Meteo mediante `GET /api/weather`.
+
+## 3. Control de versiones
+
+El repositorio está en GitHub:
+
+`https://github.com/Rappu10/freightbd-dashboard`
+
+Existe historial real de commits y se utiliza la rama `main` para el despliegue.
+La entrega debe adjuntar el enlace del Pull Request usado por el equipo y
+conservar la evidencia de ramas y revisión en GitHub.
+
+## 4. Seguridad
+
+- Autenticación con contraseña y autorización mediante JWT.
+- Contraseñas almacenadas como hashes bcrypt.
+- Validación y saneamiento de entradas en Express Validator.
+- Consultas MongoDB mediante el driver oficial, sin SQL construido por texto.
+- Secretos mediante variables de entorno.
+- Helmet, CORS y límites de peticiones.
+- HTTPS automático de Vercel en producción.
+
+## 5. Docker
+
+El repositorio incluye Dockerfiles para frontend y backend y un
+`docker-compose.yml`. El frontend y backend se levantan localmente con Docker;
+MongoDB Atlas funciona como servicio administrado externo.
+
+## 6. Pruebas
+
+- Prueba automatizada: `server/test/generate-hash.test.js`.
+- Comando: `npm test`.
+- Build: `npm run build`.
+- CI: `.github/workflows/ci.yml` ejecuta tests y build en push y Pull Request.
+- Evidencia: [EVIDENCIAS.md](EVIDENCIAS.md).
+
+## 7. Despliegue
+
+Frontend y backend se despliegan juntos en Vercel:
+
+`https://freightbd-dashboard.vercel.app/`
+
+La API se verifica en:
+
+`https://freightbd-dashboard.vercel.app/api/ping`
+
+MongoDB Atlas es la base de datos persistente y no depende del almacenamiento de
+Vercel.
+
+## 8. Documentación
+
+- Instalación y desarrollo: [README.md](README.md).
+- Despliegue: [guia-despliegue-freightbd.md](guia-despliegue-freightbd.md).
+- Usuario: [MANUAL-USUARIO.md](MANUAL-USUARIO.md).
+- Evidencias: [EVIDENCIAS.md](EVIDENCIAS.md).
